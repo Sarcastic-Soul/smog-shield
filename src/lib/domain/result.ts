@@ -9,3 +9,12 @@ export interface PlanResult {
   plan: Plan;
   source: PlanSource;
 }
+
+/**
+ * One line of the streamed `/api/plan` response (NDJSON). A `draft` is the
+ * rule-based plan sent while Gemini works; `final` is the plan to keep.
+ */
+export interface PlanEvent {
+  kind: "draft" | "final";
+  result: PlanResult;
+}

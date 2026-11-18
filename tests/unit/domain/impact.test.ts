@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   COMMUNITY_SCALES,
   communityImpact,
+  cutPercent,
+  simulatedExerciseDose,
+  TREE_KG_CO2_PER_YEAR,
+  treesEquivalent,
+  BUILDING_SCALE,
   commuteSwaps,
   exerciseShift,
   HEATING_HAZARD,
@@ -41,7 +46,7 @@ describe("commuteSwaps", () => {
 
   it("only offers lower-emission modes", () => {
     const swaps = commuteSwaps(commuteProfile("metro", 12));
-    expect(swaps.map((s) => s.to)).toEqual(["work_from_home", "bus"]);
+    expect(swaps.map((s) => s.to)).toEqual(["bus", "work_from_home"]);
   });
 
   it("does not offer walking or cycling on a long trip", () => {
@@ -64,9 +69,10 @@ describe("commuteSwaps", () => {
 
   it("sorts by weekly CO2 saved, biggest first", () => {
     const swaps = commuteSwaps(commuteProfile("car_diesel", 12));
-    const saved = swaps.map((s) => s.co2KgSavedPerWeek);
-    expect(saved).toEqual([...saved].sort((a, b) => b - a));
-    expect(swaps[0].to).toBe("work_from_home");
+    const shared = swaps.filter((s) => s.to !== "work_from_home").map((s) => s.co2KgSavedPerWeek);
+    expect(shared).toEqual([...shared].sort((a, b) => b - a));
+    expect(swaps[0].to).not.toBe("work_from_home");
+    expect(swaps.at(-1)?.to).toBe("work_from_home");
   });
 
   it("works out CO2 saved from the emission factors", () => {
@@ -163,5 +169,38 @@ describe("HEATING_HAZARD", () => {
     expect(HEATING_HAZARD.coal_or_wood).toBe("carbon_monoxide");
     expect(HEATING_HAZARD.gas_heater).toBe("nitrogen_dioxide");
     expect(HEATING_HAZARD.electric_heater).toBe("none");
+  });
+});
+
+describe("treesEquivalent", () => {
+  it("rounds to whole trees, at least 1 for any saving, 0 for none", () => {
+    expect(TREE_KG_CO2_PER_YEAR).toBe(21);
+    expect(treesEquivalent(210)).toBe(10);
+    expect(treesEquivalent(5)).toBe(1);
+    expect(treesEquivalent(0)).toBe(0);
+    expect(treesEquivalent(-4)).toBe(0);
+  });
+});
+
+describe("cutPercent", () => {
+  it("is the rounded drop, never negative", () => {
+    expect(cutPercent(100, 25)).toBe(75);
+    expect(cutPercent(100, 150)).toBe(0);
+    expect(cutPercent(0, 5)).toBe(0);
+  });
+});
+
+describe("simulatedExerciseDose", () => {
+  const shift = exerciseShift(60, 100, 40);
+  it("picks the dose for each choice", () => {
+    expect(simulatedExerciseDose(shift, "worst")).toBe(shift.doseAtWorst);
+    expect(simulatedExerciseDose(shift, "best")).toBe(shift.doseAtBest);
+    expect(simulatedExerciseDose(shift, "indoors")).toBe(shift.indoorDose);
+  });
+});
+
+describe("BUILDING_SCALE", () => {
+  it("is the 40-home building", () => {
+    expect(BUILDING_SCALE.households).toBe(40);
   });
 });

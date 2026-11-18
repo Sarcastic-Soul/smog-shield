@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ImpactSimulator } from "@/components/ImpactSimulator";
-import { communityImpact } from "@/lib/domain/impact";
+import { communityImpact, treesEquivalent } from "@/lib/domain/impact";
 import { buildInsights } from "@/lib/domain/insights";
 import { delhiReport } from "../../fixtures/delhi";
 import { healthyProfile, makeProfile } from "../../fixtures/profiles";
@@ -16,10 +16,13 @@ function setup(profile = makeProfile()) {
 const outputs = () => screen.getAllByRole("status");
 
 describe("ImpactSimulator", () => {
-  it("lists commute swaps as radios, with the biggest saving selected", () => {
+  it("lists commute swaps as radios, with the biggest shared-transport saving selected, remote work last", () => {
     const { insights } = setup();
-    expect(screen.getAllByRole("radio")).toHaveLength(insights.commute.swaps.length);
-    expect(screen.getByRole("radio", { name: "Work from home" })).toBeChecked();
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(insights.commute.swaps.length);
+    expect(radios.at(-1)).toHaveAccessibleName("Work from home");
+    expect(screen.getByRole("radio", { name: "Bus" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Work from home" })).not.toBeChecked();
     expect(within(outputs()[0]).getByText(`${insights.commute.swaps[0].co2KgSavedPerYear} kg`)).toBeInTheDocument();
   });
 
@@ -90,5 +93,29 @@ describe("ImpactSimulator", () => {
     const base = makeProfile();
     setup({ ...base, home: { ...base.home, outdoorExerciseMinutes: 0 } });
     expect(screen.getByText(/Add daily outdoor minutes/)).toBeInTheDocument();
+  });
+
+  it("shows what the yearly saving equals in trees", async () => {
+    const { insights, user } = setup();
+    const trees = treesEquivalent(insights.commute.swaps[0].co2KgSavedPerYear);
+    expect(outputs()[0]).toHaveTextContent(`as much as ${trees} trees take up in a year`);
+    await user.selectOptions(screen.getByLabelText("How many homes make this change?"), "ward");
+    const tonnes = communityImpact(insights.commute.swaps[0], 1000).co2TonnesPerYear;
+    expect(outputs()[0]).toHaveTextContent(`${treesEquivalent(tonnes * 1000).toLocaleString("en-IN")} trees`);
+  });
+
+  it("titles the commute section with the current mode in lower case", () => {
+    setup();
+    expect(screen.getByText("Commute instead of petrol car")).toBeInTheDocument();
+  });
+
+  it("explains the purifier and exercise choices in words", async () => {
+    const { insights, user } = setup();
+    expect(outputs()[1]).toHaveTextContent(`${insights.indoor.purifierCutPercent}% below`);
+    await user.click(screen.getByRole("checkbox", { name: /HEPA purifier/ }));
+    expect(outputs()[1]).toHaveTextContent(`Outdoors it is ${insights.indoor.outdoorPm25}`);
+    expect(outputs()[2]).toHaveTextContent(/% less than outside at 19:00/);
+    await user.click(screen.getByRole("checkbox", { name: /Do my 45-min exercise indoors/ }));
+    expect(outputs()[2]).toHaveTextContent("exercising outside at the worst hour, 19:00");
   });
 });

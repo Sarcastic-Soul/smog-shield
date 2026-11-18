@@ -3,12 +3,25 @@ import { planResultFixture } from "../fixtures/results";
 
 export const ANSWER_TEXT = "Keep the kids indoors until 12:00, then a short walk is fine.";
 
-/** Mocks /api/plan with the Delhi fixture. Records request bodies. */
-export async function mockPlan(page: Page): Promise<unknown[]> {
+/** NDJSON body like the real route: a rules draft line, then the final plan line. */
+export function planStreamBody(finalSource: "rules" | "gemini" = "rules"): string {
+  const draft = planResultFixture();
+  return (
+    [
+      { kind: "draft", result: draft },
+      { kind: "final", result: { ...draft, source: finalSource } },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join("\n") + "\n"
+  );
+}
+
+/** Mocks /api/plan with the Delhi fixture as NDJSON. Records request bodies. */
+export async function mockPlan(page: Page, finalSource: "rules" | "gemini" = "rules"): Promise<unknown[]> {
   const bodies: unknown[] = [];
   await page.route("**/api/plan", async (route: Route) => {
     bodies.push(route.request().postDataJSON());
-    await route.fulfill({ json: planResultFixture() });
+    await route.fulfill({ status: 200, contentType: "application/x-ndjson", body: planStreamBody(finalSource) });
   });
   return bodies;
 }

@@ -72,11 +72,13 @@ interface CheckboxFieldProps {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /** Text style; defaults to small body text. */
+  textClassName?: string;
 }
 
-export function CheckboxField({ label, checked, onChange }: CheckboxFieldProps) {
+export function CheckboxField({ label, checked, onChange, textClassName = "text-sm" }: CheckboxFieldProps) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+    <label className={`flex min-h-11 cursor-pointer items-center gap-3 ${textClassName}`}>
       <input
         type="checkbox"
         className="size-4 accent-[var(--accent)]"

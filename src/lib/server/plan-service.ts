@@ -4,7 +4,7 @@ import { buildFallbackPlan, reconcilePlan } from "../domain/fallback-plan";
 import { buildInsights, type Insights } from "../domain/insights";
 import type { Plan, PlanSource } from "../domain/plan";
 import type { Profile } from "../domain/profile";
-import type { PlanResult } from "../domain/result";
+import type { PlanEvent, PlanResult } from "../domain/result";
 import { createTtlCache } from "./ttl-cache";
 
 export interface PlanDeps {
@@ -19,6 +19,8 @@ export interface Facts {
   text: string;
 }
 
+type CachedPlan = { plan: Plan; source: PlanSource };
+
 /** Gemini plans last for the forecast hour; rule plans briefly, so Gemini is retried soon. */
 const AI_PLAN_TTL_MS = 60 * 60_000;
 const RULES_PLAN_TTL_MS = 60_000;
@@ -29,38 +31,57 @@ const RULES_PLAN_TTL_MS = 60_000;
  */
 export function createPlanService(deps: PlanDeps, cacheSize = 200) {
   // Same household + same forecast hour = same plan. Saves AI calls.
-  const aiPlans = createTtlCache<{ plan: Plan; source: PlanSource }>({ ttlMs: AI_PLAN_TTL_MS, max: cacheSize });
-  const rulePlans = createTtlCache<{ plan: Plan; source: PlanSource }>({ ttlMs: RULES_PLAN_TTL_MS, max: cacheSize });
+  const aiPlans = createTtlCache<CachedPlan>({ ttlMs: AI_PLAN_TTL_MS, max: cacheSize });
+  const rulePlans = createTtlCache<CachedPlan>({ ttlMs: RULES_PLAN_TTL_MS, max: cacheSize });
 
   /** Server-side facts for a household. Used by both the plan and the follow-up questions. */
-  async function factsFor(profile: Profile, city: string): Promise<Facts> {
-    const report = await deps.getAirReport(city);
+  async function factsFor(profile: Profile): Promise<Facts> {
+    const report = await deps.getAirReport(profile.city);
     const insights = buildInsights(profile, report);
     return { report, insights, text: buildFacts(profile, report, insights) };
   }
 
-  async function planFor(profile: Profile, city: string): Promise<PlanResult> {
-    const { report, insights, text } = await factsFor(profile, city);
+  /**
+   * The plan as a short sequence of events. When Gemini has to be called, a
+   * rule-based draft is sent first so the family sees useful advice at once,
+   * then Gemini's plan replaces it. Cached answers arrive as a single event.
+   */
+  async function* planEvents(profile: Profile, facts: Facts): AsyncGenerator<PlanEvent> {
+    const { report, insights, text } = facts;
     const key = `${report.now.time}|${JSON.stringify(profile)}`;
-    const fallback = () => buildFallbackPlan(profile, report, insights);
+    const result = (entry: CachedPlan): PlanResult => ({ report, insights, ...entry });
 
-    // A rules plan made in the last minute means Gemini just failed for this key: skip the wait.
-    const recentRules = rulePlans.peek(key);
-    if (recentRules) return { report, insights, ...(await recentRules) };
+    // A rules plan from the last minute means Gemini just failed for this key: skip the wait.
+    const cached = aiPlans.peek(key) ?? rulePlans.peek(key);
+    if (cached) {
+      yield { kind: "final", result: result(await cached) };
+      return;
+    }
 
-    let entry = await aiPlans
+    const rules: CachedPlan = { plan: buildFallbackPlan(profile, report, insights), source: "rules" };
+    yield { kind: "draft", result: result(rules) };
+
+    const ai = await aiPlans
       .get(key, async () => {
         const aiPlan = await deps.generatePlan(buildPlanPrompt(text, profile.notes));
         // A rejected promise is evicted, so a failed AI call is not cached as a hit.
         if (!aiPlan) throw new Error("no AI plan");
-        const plan = profile.language === "en" ? reconcilePlan(aiPlan, fallback()) : aiPlan;
+        const plan = profile.language === "en" ? reconcilePlan(aiPlan, rules.plan) : aiPlan;
         return { plan, source: "gemini" as const };
       })
       .catch(() => null);
 
-    entry ??= await rulePlans.get(key, async () => ({ plan: fallback(), source: "rules" as const }));
-    return { report, insights, ...entry };
+    if (!ai) await rulePlans.get(key, async () => rules);
+    yield { kind: "final", result: result(ai ?? rules) };
   }
 
-  return { planFor, factsFor };
+  /** The final plan only, for callers that do not stream. */
+  async function planFor(profile: Profile): Promise<PlanResult> {
+    let last: PlanResult | undefined;
+    for await (const event of planEvents(profile, await factsFor(profile))) last = event.result;
+    if (!last) throw new Error("Plan stream ended without a result");
+    return last;
+  }
+
+  return { factsFor, planEvents, planFor };
 }

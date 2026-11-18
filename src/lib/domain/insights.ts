@@ -3,7 +3,7 @@ import type { AirReport, DailyOutlook } from "../air/types";
 import { roundTo } from "../math";
 import {
   CO2_KG_PER_KM,
-  COMMUNITY_SCALES,
+  BUILDING_SCALE,
   communityImpact,
   commuteSwaps,
   COOKING_PM25_ADDED,
@@ -12,6 +12,7 @@ import {
   indoorEstimate,
   maskEffect,
   POLLUTING_COOKING_PM25,
+  SMOKER_INDOOR_PM25,
   weeklyCommuteKm,
   type CommunityImpact,
   type CommuteSwap,
@@ -20,7 +21,7 @@ import {
   type IndoorEstimate,
   type MaskEffect,
 } from "./impact";
-import type { CookingFuel, Profile } from "./profile";
+import type { CookingFuel, Profile } from "./profile-options";
 import { assessRisk, type HouseholdRisk } from "./risk";
 import { findWindows, type AirWindow } from "./windows";
 
@@ -76,7 +77,9 @@ function safetyAlertsFor(profile: Profile, risk: HouseholdRisk, heatingHazard: H
     );
   }
   if (profile.home.smokerAtHome && risk.hasSensitiveMembers) {
-    alerts.push("Smoking indoors adds about 40 µg/m³ of PM2.5 for everyone at home. Smoke outside, away from windows.");
+    alerts.push(
+      `Smoking indoors adds about ${SMOKER_INDOOR_PM25} µg/m³ of PM2.5 for everyone at home. Smoke outside, away from windows.`,
+    );
   }
   if (risk.level === "severe" && risk.hasSensitiveMembers) {
     alerts.push(
@@ -96,7 +99,6 @@ export function buildInsights(profile: Profile, report: AirReport): Insights {
   const swaps = commuteSwaps(profile);
   const addedPm25 = COOKING_PM25_ADDED[profile.home.cooking];
   const heatingHazard = HEATING_HAZARD[profile.home.heating];
-  const building = COMMUNITY_SCALES.find((scale) => scale.id === "building")!;
 
   return {
     band: { id: band.id, label: band.label, colorVar: band.colorVar },
@@ -112,7 +114,7 @@ export function buildInsights(profile: Profile, report: AirReport): Insights {
       weeklyCo2Kg: roundTo(CO2_KG_PER_KM[profile.commute.mode] * weeklyKm),
       swaps,
     },
-    community: swaps[0] ? communityImpact(swaps[0], building.households) : null,
+    community: swaps[0] ? communityImpact(swaps[0], BUILDING_SCALE.households) : null,
     cooking: { fuel: profile.home.cooking, addedPm25, isPolluting: addedPm25 >= POLLUTING_COOKING_PM25 },
     heatingHazard,
     outlook: { days: report.outlook, trend: trendOf(now.pm25, report.outlook) },

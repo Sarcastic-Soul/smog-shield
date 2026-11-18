@@ -1,5 +1,5 @@
 import { pm25ToAqi } from "../air/aqi";
-import { hourOf, type HourlyAir } from "../air/types";
+import { clockOf, dateOf, hourOf, type HourlyAir } from "../air/types";
 import { mean, roundTo } from "../math";
 
 export interface AirWindow {
@@ -62,7 +62,7 @@ export function findWindows(hours: HourlyAir[], size = 2): { best: AirWindow; wo
 
     const start = i - size + 1;
     // All hours in daytime and on the same calendar day.
-    if (daytimeCount !== size || hours[start].time.slice(0, 10) !== hours[i].time.slice(0, 10)) continue;
+    if (daytimeCount !== size || dateOf(hours[start].time) !== dateOf(hours[i].time)) continue;
     if (pmSum < bestSum) {
       bestSum = pmSum;
       bestIndex = start;
@@ -78,11 +78,9 @@ export function findWindows(hours: HourlyAir[], size = 2): { best: AirWindow; wo
 }
 
 /** "07:00" style label from a local time string. */
-export function clockLabel(localTime: string): string {
-  return localTime.slice(11, 16);
-}
+export const clockLabel = clockOf;
 
 /** "today" or "tomorrow" relative to `now`, both local `YYYY-MM-DDTHH:mm` strings. */
 export function dayOf(localTime: string, now: string): "today" | "tomorrow" {
-  return localTime.slice(0, 10) > now.slice(0, 10) ? "tomorrow" : "today";
+  return dateOf(localTime) > dateOf(now) ? "tomorrow" : "today";
 }

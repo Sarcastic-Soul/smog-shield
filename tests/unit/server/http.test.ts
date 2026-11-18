@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { AirDataError } from "@/lib/air/open-meteo";
-import { clientKey, errorResponse, isCrossSite, jsonError, readJson } from "@/lib/server/http";
+import { clientKey, errorResponse, isCrossSite, jsonError, readCapped, readJson } from "@/lib/server/http";
 
 const schema = z.object({ n: z.number().min(1) }).strict();
 
@@ -132,5 +132,70 @@ describe("jsonError", () => {
     const response = jsonError(429, "slow down", { "Retry-After": "5" });
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("Retry-After")).toBe("5");
+  });
+});
+
+describe("readCapped", () => {
+  const encoder = new TextEncoder();
+  const streamed = (chunks: string[], onCancel?: () => void) =>
+    new Request("http://test.local/api", {
+      method: "POST",
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+          controller.close();
+        },
+        cancel: onCancel,
+      }),
+      // @ts-expect-error Node requires duplex for stream bodies.
+      duplex: "half",
+    });
+
+  it("joins chunks into text when under the limit", async () => {
+    await expect(readCapped(streamed(["hel", "lo ", "wörld"]), 100)).resolves.toBe("hello wörld");
+  });
+
+  it("allows a body of exactly the limit", async () => {
+    await expect(readCapped(streamed(["abcd", "efgh"]), 8)).resolves.toBe("abcdefgh");
+  });
+
+  it("returns null as soon as a chunked body passes the limit, and cancels the stream", async () => {
+    let pulled = 0;
+    const request = new Request("http://test.local/api", {
+      method: "POST",
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulled += 1;
+          controller.enqueue(encoder.encode("x".repeat(10)));
+        },
+      }),
+      // @ts-expect-error Node requires duplex for stream bodies.
+      duplex: "half",
+    });
+    await expect(readCapped(request, 25)).resolves.toBeNull();
+    // Endless source: reading stopped after a few chunks.
+    expect(pulled).toBeLessThan(20);
+  });
+
+  it("returns an empty string when there is no body", async () => {
+    await expect(readCapped(new Request("http://test.local/api"), 10)).resolves.toBe("");
+  });
+
+  it("makes readJson answer 413 for a chunked body over 8 KB without a content-length", async () => {
+    const request = new Request("http://test.local/api", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let i = 0; i < 5; i++) controller.enqueue(encoder.encode("x".repeat(2000)));
+          controller.close();
+        },
+      }),
+      // @ts-expect-error Node requires duplex for stream bodies.
+      duplex: "half",
+    });
+    const result = await readJson(request, schema);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.response.status).toBe(413);
   });
 });

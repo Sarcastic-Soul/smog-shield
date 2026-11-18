@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { requestPlan } from "@/lib/client/api";
 import { isAbortError, messageOf } from "@/lib/client/errors";
-import { DEFAULT_PROFILE, profileSchema, type Profile } from "@/lib/domain/profile";
+import { DEFAULT_PROFILE, type Profile } from "@/lib/domain/profile-options";
 import type { PlanResult } from "@/lib/domain/result";
 import { AirReportPanel } from "./AirReportPanel";
 import { AskPanel } from "./AskPanel";
@@ -14,11 +14,14 @@ import { ProfileForm } from "./ProfileForm";
 
 const STORAGE_KEY = "smog-shield:profile";
 
-function loadSavedProfile(): Profile | null {
+/** The zod schema is loaded on demand so the validation library stays out of the first page load. */
+const loadSchema = () => import("@/lib/domain/profile").then((m) => m.profileSchema);
+
+async function loadSavedProfile(): Promise<Profile | null> {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = profileSchema.safeParse(JSON.parse(raw));
+    const parsed = (await loadSchema()).safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
@@ -37,7 +40,24 @@ type State =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; result: PlanResult; profile: Profile };
+  /** `pending` is true while a rule-based draft is shown and Gemini is still writing. */
+  | { status: "ready"; result: PlanResult; profile: Profile; pending: boolean };
+
+function statusLine(state: State): string {
+  switch (state.status) {
+    case "idle":
+      return "";
+    case "loading":
+      return "Reading today's air…";
+    case "error":
+      return `Could not build the plan: ${state.message}`;
+    case "ready": {
+      const { report, insights } = state.result;
+      const base = `Plan ready for ${report.place.name}: AQI ${report.now.aqi}, ${insights.risk.level} risk.`;
+      return state.pending ? `${base} Gemini is tailoring it.` : base;
+    }
+  }
+}
 
 export function SmogShieldApp() {
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
@@ -47,32 +67,47 @@ export function SmogShieldApp() {
   const inFlight = useRef(false);
 
   useEffect(() => {
-    const saved = loadSavedProfile();
-    // Restoring a saved profile after mount avoids a hydration mismatch.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (saved) setProfile(saved);
-    return () => controller.current?.abort();
+    let active = true;
+    // Restoring after mount avoids a hydration mismatch.
+    void loadSavedProfile().then((saved) => {
+      if (active && saved) setProfile(saved);
+    });
+    return () => {
+      active = false;
+      controller.current?.abort();
+    };
   }, []);
+
+  function showResults() {
+    requestAnimationFrame(() => {
+      resultsRef.current?.focus({ preventScroll: true });
+      resultsRef.current?.scrollIntoView({ block: "start" });
+    });
+  }
 
   async function submit() {
     // A ref (not state) so a fast double click cannot start two requests.
     if (inFlight.current) return;
-    const parsed = profileSchema.safeParse(profile);
-    if (!parsed.success) {
-      setState({ status: "error", message: parsed.error.issues[0].message });
-      return;
-    }
     inFlight.current = true;
-    controller.current = new AbortController();
-    setState({ status: "loading" });
-    saveProfile(parsed.data);
     try {
-      const result = await requestPlan(parsed.data, controller.current.signal);
-      setState({ status: "ready", result, profile: parsed.data });
-      requestAnimationFrame(() => {
-        resultsRef.current?.focus({ preventScroll: true });
-        resultsRef.current?.scrollIntoView({ block: "start" });
-      });
+      const parsed = (await loadSchema()).safeParse(profile);
+      if (!parsed.success) {
+        setState({ status: "error", message: parsed.error.issues[0].message });
+        return;
+      }
+      controller.current = new AbortController();
+      setState({ status: "loading" });
+      saveProfile(parsed.data);
+      let shown = false;
+      await requestPlan(
+        parsed.data,
+        (event) => {
+          setState({ status: "ready", result: event.result, profile: parsed.data, pending: event.kind === "draft" });
+          if (!shown) showResults();
+          shown = true;
+        },
+        controller.current.signal,
+      );
     } catch (err) {
       if (!isAbortError(err)) setState({ status: "error", message: messageOf(err) });
     } finally {
@@ -86,19 +121,16 @@ export function SmogShieldApp() {
         <ProfileForm profile={profile} onChange={setProfile} onSubmit={submit} busy={state.status === "loading"} />
       </aside>
 
-      <div
-        id="results"
-        ref={resultsRef}
-        tabIndex={-1}
-        aria-live="polite"
-        aria-busy={state.status === "loading"}
-        className="min-w-0 scroll-mt-4 focus:outline-none"
-      >
+      <div id="results" ref={resultsRef} tabIndex={-1} className="min-w-0 scroll-mt-4 focus:outline-none">
+        {/* One short live message instead of reading the whole plan aloud. */}
+        <p role="status" className="sr-only">
+          {statusLine(state)}
+        </p>
         {state.status === "idle" && <EmptyState />}
         {state.status === "loading" && <LoadingState city={profile.city} />}
         {state.status === "error" && (
           <div role="alert" className="rounded-md border border-alert bg-alert-soft p-6">
-            <p className="font-medium text-alert">We could not build your plan.</p>
+            <p className="font-medium text-alert">We could not build your plan</p>
             <p className="mt-1">{state.message}</p>
           </div>
         )}
@@ -114,6 +146,7 @@ export function SmogShieldApp() {
             <PlanView
               plan={state.result.plan}
               source={state.result.source}
+              pending={state.pending}
               safetyAlerts={state.result.insights.safetyAlerts}
               language={state.profile.language}
             />
@@ -167,9 +200,8 @@ function EmptyState() {
 
 function LoadingState({ city }: { city: string }) {
   return (
-    <div className="space-y-4 pt-2" role="status">
+    <div className="space-y-4 pt-2">
       <p className="font-serif text-3xl tracking-tight">Reading the air over {city}…</p>
-      <p className="text-sm text-ink-muted">Gemini is writing your plan. This usually takes 5 to 15 seconds.</p>
       <div className="h-36 w-64 animate-pulse rounded-md bg-rule motion-reduce:animate-none" />
       <div className="h-40 animate-pulse rounded-md bg-rule motion-reduce:animate-none" />
     </div>

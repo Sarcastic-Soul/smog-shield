@@ -8,7 +8,7 @@ import {
   HEATING_LABELS,
   HEATING_TYPES,
   type Profile,
-} from "@/lib/domain/profile";
+} from "@/lib/domain/profile-options";
 import { CheckboxField, Legend, NumberField, SelectField } from "./fields";
 
 interface CommuteProps {

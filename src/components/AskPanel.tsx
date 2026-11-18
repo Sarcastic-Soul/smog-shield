@@ -4,7 +4,7 @@ import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { askQuestion } from "@/lib/client/api";
 import { isAbortError, messageOf } from "@/lib/client/errors";
-import { RTL_LANGUAGES, type Profile } from "@/lib/domain/profile";
+import { QUESTION_LIMITS, RTL_LANGUAGES, type Profile } from "@/lib/domain/profile-options";
 
 const SUGGESTIONS = [
   "Is it safe for my kids to play outside after school?",
@@ -25,7 +25,7 @@ export function AskPanel({ profile }: { profile: Profile }) {
 
   async function ask(text: string) {
     const trimmed = text.trim();
-    if (trimmed.length < 3 || busy) return;
+    if (trimmed.length < QUESTION_LIMITS.min || busy) return;
     controller.current?.abort();
     controller.current = new AbortController();
     setBusy(true);
@@ -79,13 +79,13 @@ export function AskPanel({ profile }: { profile: Profile }) {
           id={inputId}
           className="field"
           value={question}
-          maxLength={300}
+          maxLength={QUESTION_LIMITS.max}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="e.g. Should I send my father for his morning walk?"
         />
         <button
           type="submit"
-          disabled={busy || question.trim().length < 3}
+          disabled={busy || question.trim().length < QUESTION_LIMITS.min}
           className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md bg-ink px-4 text-paper transition-colors hover:bg-accent disabled:opacity-50"
         >
           <PaperPlaneRight weight="bold" aria-hidden />
@@ -94,7 +94,7 @@ export function AskPanel({ profile }: { profile: Profile }) {
       </form>
 
       <div aria-live="polite" aria-busy={busy} className="mt-6 max-w-2xl">
-        {asked && <p className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted">You asked: {asked}</p>}
+        {asked && <p className="text-sm text-ink-muted">You asked: {asked}</p>}
         {answer && (
           <p
             lang={profile.language}

@@ -43,6 +43,34 @@ export function errorResponse(error: unknown, fallbackMessage: string): Response
   return jsonError(500, fallbackMessage);
 }
 
+/**
+ * Reads the body as text, stopping as soon as it passes `limit` bytes, so a
+ * huge or chunked body is never held in memory. Returns null when too large.
+ */
+export async function readCapped(request: Request, limit: number): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 type Parsed<T> = { ok: true; data: T } | { ok: false; response: Response };
 
 /** Reads a small JSON body and validates it. Rejects big or malformed bodies. */
@@ -54,12 +82,12 @@ export async function readJson<S extends z.ZodType>(request: Request, schema: S)
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > MAX_BODY_BYTES) return { ok: false, response: jsonError(413, "Request too large") };
 
-  const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > MAX_BODY_BYTES) return { ok: false, response: jsonError(413, "Request too large") };
+  const raw = await readCapped(request, MAX_BODY_BYTES);
+  if (raw === null) return { ok: false, response: jsonError(413, "Request too large") };
 
   let body: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(bytes));
+    body = JSON.parse(raw);
   } catch {
     return { ok: false, response: jsonError(400, "Invalid JSON") };
   }

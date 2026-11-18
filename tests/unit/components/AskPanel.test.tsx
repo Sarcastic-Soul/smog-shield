@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AskPanel } from "@/components/AskPanel";
+import { QUESTION_LIMITS } from "@/lib/domain/profile";
 import { askQuestion } from "@/lib/client/api";
 import { makeProfile } from "../../fixtures/profiles";
 
@@ -55,5 +56,19 @@ describe("AskPanel", () => {
     await user.type(screen.getByLabelText("Your question"), "Is it safe?");
     await user.click(screen.getByRole("button", { name: "Ask" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The assistant is offline right now.");
+  });
+
+  it("limits the input length to the shared question limit", () => {
+    render(<AskPanel profile={makeProfile()} />);
+    expect(screen.getByLabelText("Your question")).toHaveAttribute("maxlength", String(QUESTION_LIMITS.max));
+  });
+
+  it("does not shout the asked question in capitals", async () => {
+    const user = userEvent.setup();
+    render(<AskPanel profile={makeProfile()} />);
+    await user.type(screen.getByLabelText("Your question"), "Can we walk?");
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+    const line = await screen.findByText("You asked: Can we walk?");
+    expect(line.className).not.toMatch(/uppercase/);
   });
 });

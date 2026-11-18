@@ -1,5 +1,5 @@
 import { WHO_PM25_24H } from "@/lib/air/aqi";
-import type { AirReport } from "@/lib/air/types";
+import { POLLUTANT_LABELS, type AirReport } from "@/lib/air/types";
 import type { Insights } from "@/lib/domain/insights";
 import { clockLabel } from "@/lib/domain/windows";
 
@@ -70,7 +70,8 @@ export function AirReportPanel({ report, insights }: { report: AirReport; insigh
         </div>
       </dl>
       <p className="text-sm text-ink-muted md:col-start-2">
-        {insights.risk.outdoorRule} PM10 {now.pm10} · NO₂ {now.no2} · Ozone {now.ozone} µg/m³.
+        {insights.risk.outdoorRule} Main pollutant: {POLLUTANT_LABELS[now.dominant]}. PM10 {now.pm10} · NO₂ {now.no2} ·
+        Ozone {now.ozone} µg/m³.
       </p>
     </section>
   );

@@ -7,11 +7,14 @@ import { planResultFixture } from "../../fixtures/results";
 
 const fixture = planResultFixture();
 
-function setup(options: { plan?: Plan; source?: "gemini" | "rules"; alerts?: string[]; language?: Language } = {}) {
+function setup(
+  options: { plan?: Plan; source?: "gemini" | "rules"; alerts?: string[]; language?: Language; pending?: boolean } = {},
+) {
   return render(
     <PlanView
       plan={options.plan ?? fixture.plan}
       source={options.source ?? "rules"}
+      pending={options.pending ?? false}
       safetyAlerts={options.alerts ?? []}
       language={options.language ?? "en"}
     />,
@@ -101,7 +104,7 @@ describe("PlanView", () => {
   });
 
   it("sets lang and dir=rtl on Urdu text", () => {
-    setup({ language: "ur" });
+    setup({ language: "ur", source: "gemini" });
     for (const el of [
       screen.getByRole("heading", { name: fixture.plan.headline }),
       screen.getByRole("list", { name: "Your next 24 hours" }),
@@ -115,11 +118,49 @@ describe("PlanView", () => {
 
   it("sets lang with left-to-right for Hindi, Bengali and Punjabi", () => {
     for (const language of ["hi", "bn", "pa"] as const) {
-      const { unmount } = setup({ language });
+      const { unmount } = setup({ language, source: "gemini" });
       const headline = screen.getByRole("heading", { name: fixture.plan.headline });
       expect(headline).toHaveAttribute("lang", language);
       expect(headline).toHaveAttribute("dir", "ltr");
       unmount();
     }
+  });
+
+  it("keeps rules plans in English (lang=en, dir=ltr) whatever language was chosen", () => {
+    setup({ language: "ur", source: "rules" });
+    const headline = screen.getByRole("heading", { name: fixture.plan.headline });
+    expect(headline).toHaveAttribute("lang", "en");
+    expect(headline).toHaveAttribute("dir", "ltr");
+    expect(screen.getByRole("list", { name: "Your next 24 hours" })).toHaveAttribute("dir", "ltr");
+  });
+
+  it("shows an English-fallback note for a rules plan in another language", () => {
+    setup({ language: "hi", source: "rules" });
+    expect(screen.getByText(/this plan is in English/)).toBeInTheDocument();
+  });
+
+  it("shows no fallback note for English, Gemini plans, or drafts", () => {
+    const cases = [
+      { language: "en", source: "rules" },
+      { language: "hi", source: "gemini" },
+      { language: "hi", source: "rules", pending: true },
+    ] as const;
+    for (const options of cases) {
+      const { unmount } = setup(options);
+      expect(screen.queryByText(/this plan is in English/)).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("shows the pending note and a quick-plan label while Gemini is still writing", () => {
+    setup({ pending: true });
+    expect(screen.getByText(/Gemini is tailoring this plan to your household/)).toBeInTheDocument();
+    expect(screen.getByText(/Quick plan from today's numbers/)).toBeInTheDocument();
+    expect(screen.queryByText(/Built from rules/)).not.toBeInTheDocument();
+  });
+
+  it("hides the pending note when the plan is final", () => {
+    setup({ pending: false });
+    expect(screen.queryByText(/Gemini is tailoring/)).not.toBeInTheDocument();
   });
 });

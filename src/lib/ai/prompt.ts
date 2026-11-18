@@ -1,5 +1,5 @@
-import type { AirReport } from "../air/types";
-import { COMMUNITY_SCALES } from "../domain/impact";
+import { dateOf, POLLUTANT_LABELS, type AirReport } from "../air/types";
+import { BUILDING_SCALE } from "../domain/impact";
 import type { Insights } from "../domain/insights";
 import {
   COMMUTE_LABELS,
@@ -18,9 +18,11 @@ Rules:
 - Every "impact" and "why" field must contain at least one number from FACTS and say what it means for this family.
 - Tailor advice to the household: name the sensitive members, the commute mode, cooking fuel, heating and budget.
 - Routine: 5 to 7 steps for the next 24 hours, starting from the local time now. Set "day" to "today" for times still ahead today and "tomorrow" for times after midnight or already passed. Cover the commute, the cleanest window, the worst window, cooking and bedtime. Fit real plans from <household_notes> (school, sport, walks) into the routine, moving them to cleaner hours if needed.
+- If a step moves exercise indoors, quote the indoors-with-purifier dose, not the outdoor one.
+- If the main pollutant is not PM2.5, say so (ozone is highest in sunny afternoons, so then prefer mornings or indoors).
 - If "N95 advised: yes", the commute or any outdoor step must say to wear a well-fitted N95 (child size for children).
 - Indoor hacks: at least 3. If the home has no purifier, include a DIY box-fan filter or one clean room, using the purifier numbers.
-- Alternatives: one entry per commute swap in FACTS (up to 3), then one non-commute swap (cooking, heating or waste burning).
+- Alternatives: one entry per numbered commute swap in FACTS, in the same order (Swap 1 first), then one non-commute swap (cooking, heating or waste burning) that fits this home.
 - Community actions: 2 to 3 things to do with neighbours, the building or RWA, the child's school or the workplace, using the community numbers in FACTS.
 - Group advice: one entry per sensitive group exactly as listed in FACTS. Do not guess which person has which condition.
 - Prefer cheap, available fixes for a "low" budget (DIY box-fan filter, wet mopping, sealing gaps) and do not push expensive purchases.
@@ -59,12 +61,11 @@ export function buildFacts(profile: Profile, report: AirReport, insights: Insigh
   const { now, place } = report;
   const w = insights.windows;
   const { swaps } = insights.commute;
-  const building = COMMUNITY_SCALES.find((scale) => scale.id === "building")!;
 
   const lines = [
     `Language: ${languageName(profile.language)}.`,
-    `Location: ${place.name}${place.region ? `, ${place.region}` : ""}, ${place.country}. Local date ${now.time.slice(0, 10)}, local time now ${clockLabel(now.time)}.`,
-    `Now: US AQI ${now.aqi} (${insights.band.label}); PM2.5 ${now.pm25} µg/m³ = ${insights.timesWhoLimit}x WHO daily limit = about ${insights.cigarettesPerDay} cigarettes/day; PM10 ${now.pm10}; NO2 ${now.no2}; ozone ${now.ozone}.`,
+    `Location: ${place.name}${place.region ? `, ${place.region}` : ""}, ${place.country}. Local date ${dateOf(now.time)}, local time now ${clockLabel(now.time)}.`,
+    `Now: US AQI ${now.aqi} (${insights.band.label}), main pollutant ${POLLUTANT_LABELS[now.dominant]}; PM2.5 ${now.pm25} µg/m³ = ${insights.timesWhoLimit}x WHO daily limit = about ${insights.cigarettesPerDay} cigarettes/day; PM10 ${now.pm10}; NO2 ${now.no2}; ozone ${now.ozone}.`,
     `Household risk: ${insights.risk.level}. Rule: ${insights.risk.outdoorRule} N95 advised: ${yesNo(insights.risk.maskAdvised)}.`,
     `Sensitive groups: ${insights.risk.sensitiveGroups.map((g) => g.label).join("; ") || "none"}.`,
     `Household: ${describeHousehold(profile)}. Budget: ${profile.budget}.`,
@@ -82,14 +83,15 @@ export function buildFacts(profile: Profile, report: AirReport, insights: Insigh
     `Commute: ${COMMUTE_LABELS[profile.commute.mode]}, ${profile.commute.distanceKm} km each way, ${profile.commute.daysPerWeek} days/week = ${insights.commute.weeklyKm} km/week, ${insights.commute.weeklyCo2Kg} kg CO2/week.`,
     swaps.length
       ? `Commute swaps: ${swaps
+          .slice(0, 3)
           .map(
-            (s) =>
-              `${COMMUTE_LABELS[s.to]} saves ${s.co2KgSavedPerWeek} kg CO2/week (${s.co2KgSavedPerYear} kg/year) and ${s.pm25GramsSavedPerWeek} g tailpipe PM2.5/week`,
+            (s, i) =>
+              `Swap ${i + 1}: ${COMMUTE_LABELS[s.to]} saves ${s.co2KgSavedPerWeek} kg CO2/week (${s.co2KgSavedPerYear} kg/year) and ${s.pm25GramsSavedPerWeek} g tailpipe PM2.5/week`,
           )
           .join("; ")}.`
       : "Commute swaps: none, already low emission.",
     insights.community
-      ? `Community: if ${building.households} homes in the building made the ${COMMUTE_LABELS[swaps[0].to]} swap, ${insights.community.co2TonnesPerYear} t CO2/year and ${insights.community.pm25KgPerYear} kg tailpipe PM2.5/year saved.`
+      ? `Community: if ${BUILDING_SCALE.households} homes in the building made the ${COMMUTE_LABELS[swaps[0].to]} swap, ${insights.community.co2TonnesPerYear} t CO2/year and ${insights.community.pm25KgPerYear} kg tailpipe PM2.5/year saved.`
       : "Community: commute already low emission; focus on burning, shared clean rooms and school rules.",
     `Waste or crop burning nearby: ${yesNo(profile.home.wasteBurningNearby)}.`,
     `Cooking: ${COOKING_LABELS[profile.home.cooking]}, adds ~${insights.cooking.addedPm25} µg/m³ PM2.5 in the kitchen while cooking.`,
@@ -100,9 +102,20 @@ export function buildFacts(profile: Profile, report: AirReport, insights: Insigh
   return lines.join("\n");
 }
 
-/** Removes characters that could fake our own XML-style tags. */
+/**
+ * Cleans free text before it goes into a prompt: folds look-alike characters,
+ * drops invisible control and formatting characters (zero-width, bidi), strips
+ * `<` `>` so our tags cannot be faked, and removes fake section labels.
+ */
 export function sanitizeUserText(input: string): string {
-  return input.replace(/[<>]/g, "").replace(/\s+/g, " ").trim();
+  return input
+    .normalize("NFKC")
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/[<>]/g, "")
+    .replace(/\b(FACTS|SYSTEM|RULES|INSTRUCTIONS?)\s*:/gi, "")
+    .replace(/([!?.,*#=_-])\1{3,}/g, "$1$1$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function buildPlanPrompt(facts: string, notes: string): string {

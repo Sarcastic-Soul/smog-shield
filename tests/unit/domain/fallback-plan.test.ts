@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildFallbackPlan, reconcilePlan, scheduleFromNow } from "@/lib/domain/fallback-plan";
+import {
+  buildFallbackPlan,
+  inSentence,
+  reconcilePlan,
+  scheduleFromNow,
+  swapKeyword,
+  timeInNotes,
+} from "@/lib/domain/fallback-plan";
 import { buildInsights } from "@/lib/domain/insights";
 import { planSchema, type Plan } from "@/lib/domain/plan";
 import type { Profile } from "@/lib/domain/profile";
@@ -57,7 +64,15 @@ describe("buildFallbackPlan", () => {
     const withSwaps = planFor(makeProfile());
     expect(withSwaps.alternatives[0].impact).toMatch(/kg CO₂/);
     const none = planFor(makeProfile({ commute: { mode: "work_from_home", distanceKm: 0, daysPerWeek: 0 } }));
-    expect(none.alternatives[0].swap).toMatch(/burning/i);
+    // No commute swaps and no burning: the cooking swap fills in.
+    expect(none.alternatives[0].swap).toBe("Open pot → pressure cooker");
+    const burning = planFor(
+      makeProfile({
+        commute: { mode: "work_from_home", distanceKm: 0, daysPerWeek: 0 },
+        home: { ...makeProfile().home, wasteBurningNearby: true },
+      }),
+    );
+    expect(burning.alternatives[0].swap).toMatch(/burning/i);
   });
 
   it("builds one group advice per sensitive group", () => {
@@ -72,7 +87,7 @@ describe("buildFallbackPlan", () => {
   it("puts the headline place and AQI in the output", () => {
     const plan = planFor(makeProfile());
     expect(plan.headline).toContain("New Delhi");
-    expect(plan.summary).toContain("PM2.5 at 62");
+    expect(plan.summary).toContain("PM2.5 is 62");
   });
 
   it("flags a mask in the commute step when risk is high", () => {
@@ -192,7 +207,7 @@ describe("reconcilePlan", () => {
     const result = reconcilePlan(ai, fallback);
     expect(result.headline).toBe("Model headline");
     expect(result.routine).toEqual(ai.routine);
-    expect(result.alternatives).toEqual(ai.alternatives);
+    expect(result.alternatives.slice(0, ai.alternatives.length)).toEqual(ai.alternatives);
     expect(planSchema.safeParse(result).success).toBe(true);
   });
 });
@@ -222,9 +237,9 @@ describe("fallback plan content", () => {
 
   it("asks to report burning when waste burning is nearby", () => {
     const burning = planFor(makeProfile({ home: { ...homeOf(), wasteBurningNearby: true } }));
-    expect(burning.communityActions.at(-1)?.action).toMatch(/Report the waste burning/);
+    expect(burning.communityActions.at(-1)?.action).toMatch(/Report the burning/);
     const quiet = planFor(makeProfile());
-    expect(quiet.communityActions.at(-1)?.action).toMatch(/no-burning rule/);
+    expect(quiet.communityActions.at(-1)?.action).toMatch(/purifier-equipped room/);
   });
 
   it("skips the building action when there is no commute swap", () => {
@@ -263,5 +278,172 @@ describe("fallback plan content", () => {
   it("drops the commute step for work from home", () => {
     const plan = planFor(makeProfile({ commute: { mode: "work_from_home", distanceKm: 0, daysPerWeek: 0 } }));
     expect(plan.routine.some((s) => s.time === "08:30")).toBe(false);
+  });
+});
+
+describe("timeInNotes", () => {
+  it.each([
+    ["football at 5pm", "17:00"],
+    ["football at 5:30 pm", "17:30"],
+    ["run at 6 AM", "06:00"],
+    ["lunch 12pm", "12:00"],
+    ["midnight 12 am", "00:00"],
+    ["match at 17:00", "17:00"],
+    ["meet 07:45 sharp", "07:45"],
+  ])("finds the time in %j", (notes, expected) => {
+    expect(timeInNotes(notes)).toBe(expected);
+  });
+
+  it.each(["no time here", "", "25:00", "13pm and 99:99", "room 5"])("returns null for %j", (notes) => {
+    expect(timeInNotes(notes)).toBeNull();
+  });
+});
+
+describe("inSentence", () => {
+  it("lower-cases the first letter", () => {
+    expect(inSentence("Bus")).toBe("bus");
+    expect(inSentence("Metro / train")).toBe("metro / train");
+    expect(inSentence("Petrol car")).toBe("petrol car");
+  });
+
+  it("keeps acronyms and already-lower text", () => {
+    expect(inSentence("CNG car")).toBe("CNG car");
+    expect(inSentence("bus")).toBe("bus");
+    expect(inSentence("")).toBe("");
+  });
+});
+
+describe("swapKeyword", () => {
+  it("lower-cases the part before ' / '", () => {
+    expect(swapKeyword("Metro / train")).toBe("metro");
+    expect(swapKeyword("Bus")).toBe("bus");
+    expect(swapKeyword("Work from home")).toBe("work from home");
+  });
+});
+
+describe("fallback plan: new rules", () => {
+  const homeOf = () => makeProfile().home;
+  const stepTimes = (p: Plan) => p.routine.map((r) => r.time);
+
+  it("uses sentence-case mode names in the commute step and swap actions", () => {
+    const plan = planFor(makeProfile());
+    expect(plan.routine.find((r) => r.time === "08:30")?.activity).toBe("Commute by petrol car with an N95 on");
+    expect(plan.alternatives.some((a) => a.action === "Take the bus for your 12 km trip.")).toBe(true);
+    expect(plan.alternatives.some((a) => a.action === "Take the CNG car for your 12 km trip.")).toBe(true);
+  });
+
+  it("skips the worst-window step when the worst window is not above AQI 100", () => {
+    const report = delhiReport();
+    const clean = {
+      ...report,
+      now: { ...report.now, aqi: 60 },
+      next24h: report.next24h.map((h) => ({ ...h, aqi: 60, pm25: 20 })),
+    };
+    const profile = makeProfile();
+    const plan = buildFallbackPlan(profile, clean, buildInsights(profile, clean));
+    expect(plan.routine.some((r) => /Stay inside, keep doors closed/.test(r.activity))).toBe(false);
+    expect(planFor(profile).routine.some((r) => /Stay inside, keep doors closed/.test(r.activity))).toBe(true);
+  });
+
+  it("adds an indoor exercise step on severe risk, using the box-fan filter without a purifier", () => {
+    const report = delhiReport();
+    const severe = { ...report, now: { ...report.now, aqi: 320, pm25: 250 } };
+    const profile = makeProfile();
+    const insights = buildInsights(profile, severe);
+    expect(insights.risk.level).toBe("severe");
+    const plan = buildFallbackPlan(profile, severe, insights);
+    const step = plan.routine.find((r) => r.time === "17:30");
+    expect(step?.activity).toBe("Do your 45-min exercise indoors with a box-fan filter on");
+    expect(plan.routine.some((r) => /Run errands or school pick-up/.test(r.activity))).toBe(true);
+    const owned = makeProfile({ home: { ...profile.home, hasPurifier: true } });
+    const ownedPlan = buildFallbackPlan(owned, severe, buildInsights(owned, severe));
+    expect(ownedPlan.routine.find((r) => r.time === "17:30")?.activity).toContain("with the purifier on");
+  });
+
+  it("adds a step for a time named in the notes", () => {
+    const plan = planFor(makeProfile({ notes: "football at 4:30pm" }));
+    const step = plan.routine.find((r) => r.time === "16:30");
+    expect(step?.activity).toContain("Your plan at 16:30");
+    expect(step?.activity).toContain("12:00");
+    expect(stepTimes(planFor(makeProfile()))).not.toContain("16:30");
+  });
+
+  it("drops a note step that clashes with a fixed time", () => {
+    const plan = planFor(makeProfile({ notes: "gym at 7am" }));
+    expect(plan.routine.filter((r) => r.time === "07:00")).toHaveLength(1);
+  });
+
+  it("adds the composting swap only when waste burns nearby", () => {
+    const burning = planFor(makeProfile({ home: { ...homeOf(), wasteBurningNearby: true } }));
+    expect(burning.alternatives.some((a) => /composting/.test(a.swap))).toBe(true);
+    expect(planFor(makeProfile()).alternatives.some((a) => /composting/.test(a.swap))).toBe(false);
+  });
+
+  it("swaps polluting cooking for LPG or induction; otherwise adds the pressure cooker only when short of 3 swaps", () => {
+    const biomass = planFor(makeProfile({ home: { ...homeOf(), cooking: "biomass" } }));
+    expect(biomass.alternatives.some((a) => /→ LPG or induction/.test(a.swap))).toBe(true);
+    expect(biomass.alternatives.some((a) => /pressure cooker/.test(a.swap))).toBe(false);
+
+    const lpg = planFor(makeProfile());
+    expect(lpg.alternatives.some((a) => /pressure cooker/.test(a.swap))).toBe(false);
+
+    const few = planFor(makeProfile({ commute: { mode: "bicycle", distanceKm: 3, daysPerWeek: 5 } }));
+    expect(few.alternatives.some((a) => /pressure cooker/.test(a.swap))).toBe(true);
+  });
+
+  it("varies the RWA action by waste burning", () => {
+    const quiet = planFor(makeProfile()).communityActions.at(-1);
+    const burning = planFor(makeProfile({ home: { ...homeOf(), wasteBurningNearby: true } })).communityActions.at(-1);
+    expect(quiet?.action).not.toBe(burning?.action);
+  });
+
+  it("names the main pollutant in the summary when it is not PM2.5", () => {
+    const report = delhiReport();
+    const profile = makeProfile();
+    const ozone = { ...report, now: { ...report.now, dominant: "ozone" as const } };
+    const plan = buildFallbackPlan(profile, ozone, buildInsights(profile, ozone));
+    expect(plan.summary).toContain("driven mostly by ozone");
+    expect(planFor(profile).summary).toContain("driven by fine particles");
+  });
+
+  it("picks the first shared swap for the building action, not work from home", () => {
+    const plan = planFor(makeProfile());
+    expect(plan.communityActions[0].action).toContain("shared bus trip");
+  });
+});
+
+describe("reconcilePlan swap top-up", () => {
+  const profile = makeProfile();
+  const fallback = planFor(profile);
+  const alt = (swap: string, action = "a") => ({ swap, action, impact: "i" });
+  const base = planFor(profile);
+
+  it("adds rule swaps whose target mode the model did not mention", () => {
+    const ai: Plan = { ...base, alternatives: [alt("Petrol car → Bus", "Take the bus")] };
+    const result = reconcilePlan(ai, fallback);
+    expect(result.alternatives[0].swap).toBe("Petrol car → Bus");
+    const swaps = result.alternatives.map((a) => a.swap);
+    expect(swaps.some((s) => /Metro/.test(s))).toBe(true);
+    expect(swaps.filter((s) => /Bus/.test(s))).toHaveLength(1);
+  });
+
+  it("treats a mention in the action text as covered, ignoring case", () => {
+    const ai: Plan = {
+      ...base,
+      alternatives: fallback.alternatives.map(() => alt("Something else", `Use METRO or the BUS or a cng car or pot`)),
+    };
+    const result = reconcilePlan(ai, fallback);
+    expect(result.alternatives.map((a) => a.swap)).not.toContain(fallback.alternatives[0].swap);
+  });
+
+  it("never exceeds the alternatives limit", () => {
+    const ai: Plan = { ...base, alternatives: Array.from({ length: 5 }, (_, i) => alt(`x${i}`, "nothing")) };
+    expect(reconcilePlan(ai, fallback).alternatives).toHaveLength(5);
+  });
+
+  it("ignores fallback entries without a target arrow", () => {
+    const odd: Plan = { ...fallback, alternatives: [alt("No arrow here")] };
+    const ai: Plan = { ...base, alternatives: [alt("Mine")] };
+    expect(reconcilePlan(ai, odd).alternatives).toEqual(ai.alternatives);
   });
 });

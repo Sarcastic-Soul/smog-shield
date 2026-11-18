@@ -71,4 +71,15 @@ describe("AirReportPanel", () => {
     setup(healthyProfile(), { ...report, now: { ...report.now, aqi: 120 } });
     expect(screen.getByText("Moderate risk for your home")).toBeInTheDocument();
   });
+
+  it("names the main pollutant", () => {
+    setup();
+    expect(screen.getByText(/Main pollutant: PM2\.5\./)).toBeInTheDocument();
+  });
+
+  it("uses the label of another dominant pollutant", () => {
+    const report = delhiReport();
+    setup(makeProfile(), { ...report, now: { ...report.now, dominant: "ozone" } });
+    expect(screen.getByText(/Main pollutant: ozone\./)).toBeInTheDocument();
+  });
 });

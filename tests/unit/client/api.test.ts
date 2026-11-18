@@ -21,14 +21,19 @@ const streamOf = (...parts: string[]) =>
   );
 
 describe("requestPlan", () => {
-  it("posts the profile as JSON and returns the parsed result", async () => {
+  const line = (kind: "draft" | "final", result = planResultFixture()) => `${JSON.stringify({ kind, result })}\n`;
+
+  it("posts the profile as JSON and reports each event", async () => {
     const result = planResultFixture();
-    fetchMock.mockResolvedValue(Response.json(result));
+    fetchMock.mockResolvedValue(streamOf(line("draft"), line("final")));
     const profile = makeProfile();
     const controller = new AbortController();
+    const onEvent = vi.fn();
 
-    await expect(requestPlan(profile, controller.signal)).resolves.toEqual(JSON.parse(JSON.stringify(result)));
+    await requestPlan(profile, onEvent, controller.signal);
 
+    expect(onEvent.mock.calls.map((c) => c[0].kind)).toEqual(["draft", "final"]);
+    expect(onEvent.mock.calls[1][0].result).toEqual(JSON.parse(JSON.stringify(result)));
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/plan");
     expect(init.method).toBe("POST");
@@ -37,24 +42,69 @@ describe("requestPlan", () => {
     expect(init.signal).toBe(controller.signal);
   });
 
+  it("parses lines split across chunks, even mid-character", async () => {
+    const text = line("draft") + line("final");
+    const bytes = new TextEncoder().encode(text);
+    const parts = [bytes.slice(0, 40), bytes.slice(40, 41), bytes.slice(41, 500), bytes.slice(500)];
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const part of parts) controller.enqueue(part);
+            controller.close();
+          },
+        }),
+      ),
+    );
+    const onEvent = vi.fn();
+    await requestPlan(makeProfile(), onEvent);
+    expect(onEvent.mock.calls.map((c) => c[0].kind)).toEqual(["draft", "final"]);
+  });
+
+  it("reads a last line that has no trailing newline and skips blank lines", async () => {
+    fetchMock.mockResolvedValue(streamOf("\n", line("draft"), "\n\n", line("final").trim()));
+    const onEvent = vi.fn();
+    await requestPlan(makeProfile(), onEvent);
+    expect(onEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts a single final event", async () => {
+    fetchMock.mockResolvedValue(streamOf(line("final")));
+    const onEvent = vi.fn();
+    await requestPlan(makeProfile(), onEvent);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when the stream ends without a final event, after reporting the draft", async () => {
+    fetchMock.mockResolvedValue(streamOf(line("draft")));
+    const onEvent = vi.fn();
+    await expect(requestPlan(makeProfile(), onEvent)).rejects.toThrow("The plan was cut off. Please try again.");
+    expect(onEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when the stream is empty", async () => {
+    fetchMock.mockResolvedValue(streamOf());
+    await expect(requestPlan(makeProfile(), vi.fn())).rejects.toThrow(/cut off/);
+  });
+
   it("throws the error text from the response body", async () => {
     fetchMock.mockResolvedValue(Response.json({ error: 'We could not find "Atlantis"' }, { status: 404 }));
-    await expect(requestPlan(makeProfile())).rejects.toThrow('We could not find "Atlantis"');
+    await expect(requestPlan(makeProfile(), vi.fn())).rejects.toThrow('We could not find "Atlantis"');
   });
 
   it("throws a generic message with the status when the body is not JSON", async () => {
     fetchMock.mockResolvedValue(new Response("<html>oops</html>", { status: 502 }));
-    await expect(requestPlan(makeProfile())).rejects.toThrow("Request failed (502)");
+    await expect(requestPlan(makeProfile(), vi.fn())).rejects.toThrow("Request failed (502)");
   });
 
   it("throws a generic message when the JSON has no error field", async () => {
     fetchMock.mockResolvedValue(Response.json({ nope: true }, { status: 500 }));
-    await expect(requestPlan(makeProfile())).rejects.toThrow("Request failed (500)");
+    await expect(requestPlan(makeProfile(), vi.fn())).rejects.toThrow("Request failed (500)");
   });
 
   it("passes network failures through", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-    await expect(requestPlan(makeProfile())).rejects.toThrow("Failed to fetch");
+    await expect(requestPlan(makeProfile(), vi.fn())).rejects.toThrow("Failed to fetch");
   });
 });
 

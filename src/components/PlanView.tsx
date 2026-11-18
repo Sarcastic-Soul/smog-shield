@@ -1,10 +1,12 @@
-import { UsersThree, Warning } from "@phosphor-icons/react";
+import { CircleNotch, UsersThree, Warning } from "@phosphor-icons/react";
 import type { Plan, PlanSource } from "@/lib/domain/plan";
-import { RTL_LANGUAGES, type Language } from "@/lib/domain/profile";
+import { RTL_LANGUAGES, type Language } from "@/lib/domain/profile-options";
 
 interface Props {
   plan: Plan;
   source: PlanSource;
+  /** True while this is a rule-based draft and Gemini is still writing. */
+  pending: boolean;
   safetyAlerts: string[];
   language: Language;
 }
@@ -17,15 +19,32 @@ function SectionTitle({ id, children }: { id: string; children: React.ReactNode 
   );
 }
 
-export function PlanView({ plan, source, safetyAlerts, language }: Props) {
-  // The plan text is in the chosen language; headings stay in English.
-  const textProps = { lang: language, dir: RTL_LANGUAGES.has(language) ? "rtl" : "ltr" } as const;
+export function PlanView({ plan, source, pending, safetyAlerts, language }: Props) {
+  // Gemini writes in the chosen language; the rule-based plan is English only.
+  const textLanguage: Language = source === "gemini" ? language : "en";
+  const textProps = { lang: textLanguage, dir: RTL_LANGUAGES.has(textLanguage) ? "rtl" : "ltr" } as const;
+  const englishFallback = source === "rules" && language !== "en" && !pending;
 
   return (
     <section aria-labelledby="plan-title" className="border-b border-rule py-10">
       <p className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted">
-        {source === "gemini" ? "Written by Gemini from today's numbers" : "Built from rules (AI busy or offline)"}
+        {source === "gemini"
+          ? "Written by Gemini from today's numbers"
+          : pending
+            ? "Quick plan from today's numbers"
+            : "Built from rules (AI busy right now)"}
       </p>
+      {pending && (
+        <p className="mt-2 inline-flex items-center gap-2 rounded-md bg-accent-soft px-3 py-1.5 text-sm text-accent">
+          <CircleNotch weight="bold" aria-hidden className="animate-spin motion-reduce:animate-none" />
+          Gemini is tailoring this plan to your household. It will update here.
+        </p>
+      )}
+      {englishFallback && (
+        <p className="mt-2 text-sm text-ink-muted">
+          Gemini is busy, so this plan is in English. Try again in a minute for your chosen language.
+        </p>
+      )}
       <h2
         id="plan-title"
         {...textProps}
@@ -111,7 +130,7 @@ export function PlanView({ plan, source, safetyAlerts, language }: Props) {
           {...textProps}
         >
           {plan.alternatives.map((alt, i) => (
-            <li key={i} className="bg-paper-raised p-5">
+            <li key={i} className="bg-paper-raised p-5 md:odd:last:col-span-2">
               <p className="font-medium">{alt.swap}</p>
               <p className="text-sm">{alt.action}</p>
               <p className="mt-2 text-sm text-accent">{alt.impact}</p>

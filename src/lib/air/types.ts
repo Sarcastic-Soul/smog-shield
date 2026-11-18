@@ -17,7 +17,20 @@ export interface AirNow {
   ozone: number;
   /** Carbon monoxide, µg/m³. */
   co: number;
+  /** The pollutant driving the AQI right now. */
+  dominant: Pollutant;
 }
+
+export type Pollutant = "pm25" | "pm10" | "no2" | "ozone" | "co" | "so2";
+
+export const POLLUTANT_LABELS: Record<Pollutant, string> = {
+  pm25: "PM2.5",
+  pm10: "PM10",
+  no2: "NO₂",
+  ozone: "ozone",
+  co: "carbon monoxide",
+  so2: "SO₂",
+};
 
 export interface HourlyAir {
   /** Local time at the place, `YYYY-MM-DDTHH:mm`. */
@@ -45,7 +58,28 @@ export interface AirReport {
   source: "open-meteo";
 }
 
-/** Hour of day (0-23) from a local `YYYY-MM-DDTHH:mm` string. */
+/*
+ * Local times from Open-Meteo are `YYYY-MM-DDTHH:mm` strings with no offset.
+ * These helpers are the only place that knows that layout.
+ */
+
+/** Hour of day (0-23). */
 export function hourOf(localTime: string): number {
   return Number.parseInt(localTime.slice(11, 13), 10);
+}
+
+/** Calendar date, `YYYY-MM-DD`. */
+export function dateOf(localTime: string): string {
+  return localTime.slice(0, 10);
+}
+
+/** Clock time, `HH:mm`. */
+export function clockOf(localTime: string): string {
+  return localTime.slice(11, 16);
+}
+
+/** Minutes since midnight for an `HH:mm` clock string. */
+export function minutesOfClock(clock: string): number {
+  const [hours, minutes] = clock.split(":").map(Number);
+  return hours * 60 + minutes;
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { GoogleGenAI } from "@google/genai";
 import { planJsonSchema, planSchema, type Plan } from "../domain/plan";
+import { createCircuitBreaker } from "./circuit-breaker";
 import { ASK_SYSTEM_INSTRUCTION, PLAN_SYSTEM_INSTRUCTION } from "./prompt";
 
 /**
@@ -16,13 +17,10 @@ const PLAN_BUDGET_MS = 26_000;
 const ASK_BUDGET_MS = 25_000;
 const RETRY_DELAY_MS = 300;
 
-/** After this many failed plan requests in a row, skip Gemini for a while. */
-const BREAKER_THRESHOLD = 3;
-const BREAKER_COOLDOWN_MS = 60_000;
+/** Shared by plans and answers: after 3 failures in a row, skip Gemini for a minute. */
+export const geminiBreaker = createCircuitBreaker({ threshold: 3, cooldownMs: 60_000 });
 
 let client: GoogleGenAI | null = null;
-let consecutiveFailures = 0;
-let breakerOpenUntil = 0;
 
 /** Lazily built so tests and key-less builds never touch the network. */
 function getClient(): GoogleGenAI | null {
@@ -69,22 +67,9 @@ async function withFallbackModels<T>(
   throw lastError;
 }
 
-function recordOutcome(ok: boolean): void {
-  if (ok) {
-    consecutiveFailures = 0;
-    return;
-  }
-  consecutiveFailures += 1;
-  if (consecutiveFailures >= BREAKER_THRESHOLD) {
-    breakerOpenUntil = Date.now() + BREAKER_COOLDOWN_MS;
-    consecutiveFailures = 0;
-  }
-}
-
-/** Test hook: resets the circuit breaker between test cases. */
-export function resetBreaker(): void {
-  consecutiveFailures = 0;
-  breakerOpenUntil = 0;
+/** False while the circuit breaker is open after repeated failures. */
+export function isAiAvailable(): boolean {
+  return !geminiBreaker.isOpen();
 }
 
 /**
@@ -95,7 +80,7 @@ export function resetBreaker(): void {
  */
 export async function generatePlan(prompt: string): Promise<Plan | null> {
   const ai = getClient();
-  if (!ai || Date.now() < breakerOpenUntil) return null;
+  if (!ai || geminiBreaker.isOpen()) return null;
 
   try {
     const response = await withFallbackModels(AbortSignal.timeout(PLAN_BUDGET_MS), (model, signal) =>
@@ -115,14 +100,14 @@ export async function generatePlan(prompt: string): Promise<Plan | null> {
     const parsed = planSchema.safeParse(JSON.parse(response.text ?? ""));
     if (!parsed.success) {
       console.warn("Gemini plan failed validation", parsed.error.issues.slice(0, 3));
-      recordOutcome(false);
+      geminiBreaker.record(false);
       return null;
     }
-    recordOutcome(true);
+    geminiBreaker.record(true);
     return parsed.data;
   } catch (error) {
     console.warn("Gemini plan request failed", error instanceof Error ? error.message : error);
-    recordOutcome(false);
+    geminiBreaker.record(false);
     return null;
   }
 }
@@ -136,18 +121,25 @@ export async function* streamAnswer(prompt: string, clientSignal?: AbortSignal):
   const signal = clientSignal ? AbortSignal.any([clientSignal, budget]) : budget;
   // Only the start of the stream is retried; once text flows we keep that model.
   // The per-attempt timeout is not passed down, so a long answer is not cut off.
-  const stream = await withFallbackModels(signal, (model) =>
-    ai.models.generateContentStream({
-      model,
-      contents: prompt,
-      config: {
-        systemInstruction: ASK_SYSTEM_INSTRUCTION,
-        temperature: 0.5,
-        maxOutputTokens: 600,
-        abortSignal: signal,
-      },
-    }),
-  );
+  let stream;
+  try {
+    stream = await withFallbackModels(signal, (model) =>
+      ai.models.generateContentStream({
+        model,
+        contents: prompt,
+        config: {
+          systemInstruction: ASK_SYSTEM_INSTRUCTION,
+          temperature: 0.5,
+          maxOutputTokens: 600,
+          abortSignal: signal,
+        },
+      }),
+    );
+    geminiBreaker.record(true);
+  } catch (error) {
+    geminiBreaker.record(false);
+    throw error;
+  }
   for await (const chunk of stream) {
     if (chunk.text) yield chunk.text;
   }

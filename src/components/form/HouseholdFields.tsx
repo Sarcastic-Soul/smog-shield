@@ -1,6 +1,6 @@
 "use client";
 
-import { CONDITION_LABELS, HEALTH_CONDITIONS, type HealthCondition, type Profile } from "@/lib/domain/profile";
+import { CONDITION_LABELS, HEALTH_CONDITIONS, type HealthCondition, type Profile } from "@/lib/domain/profile-options";
 import { Legend, NumberField } from "./fields";
 
 interface Props {

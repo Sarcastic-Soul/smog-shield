@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AirDataError } from "@/lib/air/open-meteo";
 import { delhiReport } from "../../fixtures/delhi";
+import type { PlanEvent } from "@/lib/domain/result";
+import { planResultFixture } from "../../fixtures/results";
 import { freshIp, jsonRequest, validProfile } from "./helpers";
 
 vi.mock("@/lib/server/air-service", async () => {
@@ -10,12 +12,23 @@ vi.mock("@/lib/server/air-service", async () => {
 vi.mock("@/lib/ai/gemini", () => ({
   generatePlan: vi.fn(async () => null),
   isAiConfigured: vi.fn(() => false),
+  isAiAvailable: vi.fn(() => true),
   streamAnswer: vi.fn(),
 }));
 
 const { POST } = await import("@/app/api/plan/route");
 const { getAirReport } = await import("@/lib/server/air-service");
+const { generatePlan } = await import("@/lib/ai/gemini");
 const mockedAir = vi.mocked(getAirReport);
+const mockedGenerate = vi.mocked(generatePlan);
+
+async function readEvents(response: Response): Promise<PlanEvent[]> {
+  const text = await response.text();
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as PlanEvent);
+}
 
 const call = (body: unknown, ip?: string) => POST(jsonRequest("http://test.local/api/plan", body, ip));
 
@@ -25,15 +38,45 @@ beforeEach(() => {
 });
 
 describe("POST /api/plan", () => {
-  it("returns 200 with report, insights, plan and source", async () => {
+  it("streams NDJSON: a rules draft, then the final plan", async () => {
     const response = await call({ profile: validProfile() });
     expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("application/x-ndjson");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const body = await response.json();
-    expect(body.report.place.name).toBe("New Delhi");
-    expect(body.insights.band.id).toBe("sensitive");
-    expect(body.plan.routine.length).toBeGreaterThanOrEqual(3);
-    expect(body.source).toBe("rules");
+    const events = await readEvents(response);
+    expect(events.map((e) => e.kind)).toEqual(["draft", "final"]);
+    const { result } = events[1];
+    expect(result.report.place.name).toBe("New Delhi");
+    expect(result.insights.band.id).toBe("sensitive");
+    expect(result.plan.routine.length).toBeGreaterThanOrEqual(3);
+    expect(result.source).toBe("rules");
+    expect(events[0].result.source).toBe("rules");
+  });
+
+  it("sends the Gemini plan as the final event", async () => {
+    const plan = planResultFixture().plan;
+    mockedGenerate.mockResolvedValueOnce({ ...plan, headline: "From Gemini" });
+    const events = await readEvents(await call({ profile: { ...validProfile(), city: "Gemini City" } }));
+    expect(events.map((e) => e.kind)).toEqual(["draft", "final"]);
+    expect(events[1].result.source).toBe("gemini");
+    expect(events[1].result.plan.headline).toBe("From Gemini");
+  });
+
+  it("sends a single final event for a cached answer", async () => {
+    const profile = { ...validProfile(), city: "Cached Town" };
+    await readEvents(await call({ profile }));
+    const second = await readEvents(await call({ profile }));
+    expect(second.map((e) => e.kind)).toEqual(["final"]);
+  });
+
+  it("ends the stream quietly when planning fails midway", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedGenerate.mockImplementationOnce(() => {
+      throw new Error("sync boom");
+    });
+    // generatePlan errors are caught inside the service, so the stream still finishes.
+    const events = await readEvents(await call({ profile: { ...validProfile(), city: "Boom Town" } }));
+    expect(events.at(-1)?.kind).toBe("final");
   });
 
   it("looks the city up by the trimmed name from the profile", async () => {
@@ -61,10 +104,10 @@ describe("POST /api/plan", () => {
     expect((await POST(request)).status).toBe(413);
   });
 
-  it("checks the body before the rate limit, so bad bodies do not use up a slot", async () => {
+  it("rate limits before reading the body, so bad bodies use up slots", async () => {
     const ip = freshIp();
-    for (let i = 0; i < 12; i++) expect((await call("{nope", ip)).status).toBe(400);
-    expect((await call({ profile: validProfile() }, ip)).status).toBe(200);
+    for (let i = 0; i < 10; i++) expect((await call("{nope", ip)).status).toBe(400);
+    expect((await call({ profile: validProfile() }, ip)).status).toBe(429);
   });
 
   it("returns 422 for an invalid profile", async () => {
@@ -104,12 +147,28 @@ describe("POST /api/plan", () => {
 
   it("returns 429 with Retry-After after 10 requests from one address", async () => {
     const ip = freshIp();
-    for (let i = 0; i < 10; i++) expect((await call({ profile: validProfile() }, ip)).status).toBe(200);
+    for (let i = 0; i < 10; i++) {
+      const ok = await call({ profile: validProfile() }, ip);
+      expect(ok.status).toBe(200);
+      await ok.text();
+    }
     const blocked = await call({ profile: validProfile() }, ip);
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
     // A different address is unaffected.
     expect((await call({ profile: validProfile() })).status).toBe(200);
+  });
+
+  it("exports a preferred region", async () => {
+    const route = await import("@/app/api/plan/route");
+    expect(route.preferredRegion).toBe("bom1");
+  });
+
+  it("returns facts errors as JSON status codes before streaming", async () => {
+    mockedAir.mockRejectedValue(new AirDataError("down", "upstream"));
+    const response = await call({ profile: validProfile() });
+    expect(response.status).toBe(502);
+    expect(response.headers.get("Content-Type")).toContain("application/json");
   });
 
   it("exports a max duration above the 18 s plan budget", async () => {
@@ -118,9 +177,10 @@ describe("POST /api/plan", () => {
   });
 
   it("returns the outlook and community facts in the insights", async () => {
-    const body = await (await call({ profile: validProfile() })).json();
-    expect(body.insights.outlook.days).toHaveLength(3);
-    expect(body.insights.community.households).toBe(40);
-    expect(body.plan.communityActions.length).toBeGreaterThanOrEqual(1);
+    const events = await readEvents(await call({ profile: validProfile() }));
+    const { insights, plan } = events.at(-1)!.result;
+    expect(insights.outlook.days).toHaveLength(3);
+    expect(insights.community?.households).toBe(40);
+    expect(plan.communityActions.length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -10,19 +10,28 @@ interface Props {
   nowTime: string;
 }
 
-const TREND_COPY: Record<Trend, string> = {
-  worsening: "Smog is building over the next days. Stock up on N95s and plan indoor time.",
-  steady: "Similar air for the next few days.",
-  improving: "Air should improve over the next days.",
-};
+/** Above this daily AQI a rising trend is a smog episode worth preparing for. */
+const EPISODE_AQI = 100;
+
+function trendCopy(trend: Trend, days: DailyOutlook[]): string {
+  const worst = Math.max(...days.map((d) => d.aqi));
+  if (trend === "worsening") {
+    return worst > EPISODE_AQI
+      ? "Smog is building over the next days. Stock up on N95s and plan indoor time."
+      : "A little more pollution later in the week, still at a moderate level.";
+  }
+  if (trend === "improving") return "Air should improve over the next days.";
+  return worst > EPISODE_AQI
+    ? "Polluted air is likely to stay for the next few days."
+    : "Similar air for the next few days.";
+}
 
 function inWindow(time: string, window: AirWindow | undefined): boolean {
   return Boolean(window && time >= window.start && time < window.end);
 }
 
 function windowLabel(window: AirWindow, nowTime: string): string {
-  const day = dayOf(window.start, nowTime) === "tomorrow" ? "tomorrow " : "";
-  return `${day}${clockLabel(window.start)}–${clockLabel(window.end)}`;
+  return `${dayOf(window.start, nowTime)} ${clockLabel(window.start)}–${clockLabel(window.end)}`;
 }
 
 function weekday(date: string): string {
@@ -82,7 +91,7 @@ export function ForecastStrip({ hours, windows, outlook, nowTime }: Props) {
       <div aria-hidden className="mt-1 flex gap-[3px] font-mono text-xs text-ink-muted">
         {hours.map((h) => (
           <span key={h.time} className="flex-1 text-center">
-            {hourOf(h.time) % 3 === 0 ? clockLabel(h.time).slice(0, 2) : ""}
+            {hourOf(h.time) % 3 === 0 ? String(hourOf(h.time)).padStart(2, "0") : ""}
           </span>
         ))}
       </div>
@@ -110,7 +119,7 @@ export function ForecastStrip({ hours, windows, outlook, nowTime }: Props) {
       {outlook.days.length > 0 && (
         <div className="mt-8">
           <h3 className="font-medium">Next few days</h3>
-          <p className="text-sm text-ink-muted">{TREND_COPY[outlook.trend]}</p>
+          <p className="text-sm text-ink-muted">{trendCopy(outlook.trend, outlook.days)}</p>
           <ul className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-rule bg-rule sm:max-w-md">
             {outlook.days.map((day) => (
               <li key={day.date} className="bg-paper-raised p-3">

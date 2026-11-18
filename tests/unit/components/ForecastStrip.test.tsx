@@ -29,8 +29,8 @@ describe("ForecastStrip", () => {
   it("names the cleanest and worst windows", () => {
     setup();
     expect(screen.getByRole("heading", { name: "Next 24 hours" })).toBeInTheDocument();
-    expect(screen.getByText(/Cleanest 12:00–14:00 \(PM2.5 45.5\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Worst 19:00–21:00 \(PM2.5 119\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Cleanest today 12:00–14:00 \(PM2.5 45.5\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Worst today 19:00–21:00 \(PM2.5 119\)/)).toBeInTheDocument();
   });
 
   it("says tomorrow when a window falls on the next day", () => {
@@ -77,13 +77,36 @@ describe("ForecastStrip", () => {
     expect(items[2]).toHaveTextContent("Sun");
   });
 
+  const mild = insights.outlook.days.map((d) => ({ ...d, avgPm25: 20, aqi: 70 }));
+
   it.each<[Trend, RegExp]>([
-    ["worsening", /Smog is building/],
-    ["steady", /Similar air/],
+    ["worsening", /Smog is building over the next days/],
+    ["steady", /Polluted air is likely to stay/],
     ["improving", /Air should improve/],
-  ])("explains a %s trend", (trend, text) => {
+  ])("explains a %s trend when daily AQI is above 100", (trend, text) => {
     setup({ outlook: { days: insights.outlook.days, trend } });
     expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
+  it.each<[Trend, RegExp]>([
+    ["worsening", /A little more pollution later in the week, still at a moderate level/],
+    ["steady", /Similar air for the next few days/],
+    ["improving", /Air should improve/],
+  ])("explains a %s trend when daily AQI stays at 100 or below", (trend, text) => {
+    setup({ outlook: { days: mild, trend } });
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.queryByText(/Smog is building/)).not.toBeInTheDocument();
+  });
+
+  it("treats exactly AQI 100 as not an episode", () => {
+    setup({ outlook: { days: mild.map((d) => ({ ...d, aqi: 100 })), trend: "worsening" } });
+    expect(screen.getByText(/still at a moderate level/)).toBeInTheDocument();
+  });
+
+  it("uses the highest day, not the first, to judge the trend", () => {
+    const days = [mild[0], mild[1], { ...mild[2], aqi: 160 }];
+    setup({ outlook: { days, trend: "steady" } });
+    expect(screen.getByText(/Polluted air is likely to stay/)).toBeInTheDocument();
   });
 
   it("hides the outlook section when there are no days", () => {

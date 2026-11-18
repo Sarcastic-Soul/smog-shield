@@ -10,14 +10,16 @@ vi.mock("@/lib/server/air-service", async () => {
 vi.mock("@/lib/ai/gemini", () => ({
   generatePlan: vi.fn(),
   isAiConfigured: vi.fn(),
+  isAiAvailable: vi.fn(),
   streamAnswer: vi.fn(),
 }));
 
 const { POST } = await import("@/app/api/ask/route");
 const { getAirReport } = await import("@/lib/server/air-service");
-const { isAiConfigured, streamAnswer } = await import("@/lib/ai/gemini");
+const { isAiAvailable, isAiConfigured, streamAnswer } = await import("@/lib/ai/gemini");
 const mockedAir = vi.mocked(getAirReport);
 const mockedConfigured = vi.mocked(isAiConfigured);
+const mockedAvailable = vi.mocked(isAiAvailable);
 const mockedStream = vi.mocked(streamAnswer);
 
 const call = (body: unknown, ip?: string) => POST(jsonRequest("http://test.local/api/ask", body, ip));
@@ -32,6 +34,8 @@ beforeEach(() => {
   mockedAir.mockResolvedValue(delhiReport());
   mockedConfigured.mockReset();
   mockedConfigured.mockReturnValue(true);
+  mockedAvailable.mockReset();
+  mockedAvailable.mockReturnValue(true);
   mockedStream.mockReset();
   mockedStream.mockImplementation(() => chunks("Keep them ", "inside."));
 });
@@ -41,8 +45,17 @@ describe("POST /api/ask", () => {
     mockedConfigured.mockReturnValue(false);
     const response = await call(goodBody());
     expect(response.status).toBe(503);
-    expect((await response.json()).error).toMatch(/offline/);
+    expect((await response.json()).error).toMatch(/busy right now/);
     expect(mockedStream).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the circuit breaker is open, before touching air data or the limiter", async () => {
+    mockedAvailable.mockReturnValue(false);
+    const response = await call(goodBody());
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toMatch(/busy right now/);
+    expect(mockedStream).not.toHaveBeenCalled();
+    expect(mockedAir).not.toHaveBeenCalled();
   });
 
   it("streams the answer as plain text", async () => {
@@ -123,10 +136,20 @@ describe("POST /api/ask", () => {
     expect((await POST(request)).status).toBe(413);
   });
 
-  it("rejects a bad body before using up a rate-limit slot", async () => {
+  it("rate limits before reading the body, so bad bodies use up slots", async () => {
     const ip = freshIp();
-    for (let i = 0; i < 25; i++) expect((await call({ ...goodBody(), question: "hi" }, ip)).status).toBe(422);
-    expect((await call(goodBody(), ip)).status).toBe(200);
+    for (let i = 0; i < 20; i++) expect((await call({ ...goodBody(), question: "hi" }, ip)).status).toBe(422);
+    expect((await call(goodBody(), ip)).status).toBe(429);
+  });
+
+  it("uses the shared question limits", async () => {
+    const { QUESTION_LIMITS } = await import("@/lib/domain/profile");
+    const min = "x".repeat(QUESTION_LIMITS.min);
+    const max = "x".repeat(QUESTION_LIMITS.max);
+    expect((await call({ ...goodBody(), question: min })).status).toBe(200);
+    expect((await call({ ...goodBody(), question: max })).status).toBe(200);
+    expect((await call({ ...goodBody(), question: max + "x" })).status).toBe(422);
+    expect((await call({ ...goodBody(), question: min.slice(1) })).status).toBe(422);
   });
 
   it("rebuilds the facts from the profile city, not from anything the client sends", async () => {

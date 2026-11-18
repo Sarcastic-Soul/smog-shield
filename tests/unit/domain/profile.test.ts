@@ -24,8 +24,14 @@ describe("profileSchema", () => {
     expect(parse({ city }).success).toBe(false);
   });
 
-  it.each(["New Delhi", "São Paulo", "दिल्ली", "St. John's", "Stratford-upon-Avon"])("accepts city %j", (city) => {
+  it.each(["New Delhi", "São Paulo", "St. John's", "Stratford-upon-Avon"])("accepts city %j", (city) => {
     expect(parse({ city }).success).toBe(true);
+  });
+
+  it("rejects non-Latin city names with an English-letters message", () => {
+    const result = parse({ city: "दिल्ली" });
+    expect(result.success).toBe(false);
+    expect(!result.success && result.error.issues[0].message).toBe("Use English letters for the city name");
   });
 
   it("trims the city and enforces length 2 to 80", () => {

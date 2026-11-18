@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AirDataError, fetchAirReport, geocodeCity } from "@/lib/air/open-meteo";
+import { AirDataError, dominantPollutant, fetchAirReport, geocodeCity } from "@/lib/air/open-meteo";
 import { airResponse, delhiReport, DELHI_PLACE, geocodeResponse } from "../../fixtures/delhi";
 
 beforeEach(() => {
@@ -200,5 +200,39 @@ describe("upstream errors", () => {
       message: "Air quality service did not respond",
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("dominantPollutant", () => {
+  it("picks the highest sub-index", () => {
+    expect(dominantPollutant({ us_aqi_pm2_5: 100, us_aqi_ozone: 150 })).toBe("ozone");
+    expect(dominantPollutant({ us_aqi_pm2_5: 100, us_aqi_pm10: 90, us_aqi_nitrogen_dioxide: 120 })).toBe("no2");
+    expect(dominantPollutant({ us_aqi_carbon_monoxide: 30 })).toBe("co");
+    expect(dominantPollutant({ us_aqi_sulphur_dioxide: 40, us_aqi_pm10: 10 })).toBe("so2");
+    expect(dominantPollutant({ us_aqi_pm10: 200, us_aqi_pm2_5: 100 })).toBe("pm10");
+  });
+
+  it("keeps the first on a tie, and falls back to pm25 with no data", () => {
+    expect(dominantPollutant({ us_aqi_pm2_5: 50, us_aqi_pm10: 50 })).toBe("pm25");
+    expect(dominantPollutant({})).toBe("pm25");
+    expect(dominantPollutant({ us_aqi_pm2_5: null, us_aqi_ozone: null })).toBe("pm25");
+  });
+
+  it("is used for the report and the request asks for sub-indices", async () => {
+    const data = airResponse();
+    data.current.us_aqi_ozone = 300;
+    const fetcher = jsonFetch(data);
+    const report = await fetchAirReport(DELHI_PLACE, fetcher);
+    expect(report.now.dominant).toBe("ozone");
+    const url = new URL(String(fetcher.mock.calls[0][0]));
+    expect(url.searchParams.get("current")).toContain("us_aqi_nitrogen_dioxide");
+    expect(url.searchParams.get("current")).toContain("us_aqi_sulphur_dioxide");
+  });
+
+  it("still parses when sub-indices are absent", async () => {
+    const data = airResponse();
+    for (const k of Object.keys(data.current))
+      if (k.startsWith("us_aqi_")) delete (data.current as Record<string, unknown>)[k];
+    expect((await fetchAirReport(DELHI_PLACE, jsonFetch(data))).now.dominant).toBe("pm25");
   });
 });

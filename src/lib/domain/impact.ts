@@ -1,5 +1,5 @@
 import { roundTo } from "../math";
-import type { CommuteMode, CookingFuel, HeatingType, Profile } from "./profile";
+import type { CommuteMode, CookingFuel, HeatingType, Profile } from "./profile-options";
 
 /**
  * Rough, published-range emission factors. They are estimates meant to show
@@ -106,18 +106,25 @@ export function commuteSwaps(profile: Profile): CommuteSwap[] {
   const from = profile.commute.mode;
   if (km === 0) return [];
 
-  return realisticAlternatives(profile.commute.distanceKm)
-    .filter((to) => to !== from && CO2_KG_PER_KM[to] < CO2_KG_PER_KM[from])
-    .map((to) => {
-      const co2 = (CO2_KG_PER_KM[from] - CO2_KG_PER_KM[to]) * km;
-      return {
-        to,
-        co2KgSavedPerWeek: roundTo(co2),
-        pm25GramsSavedPerWeek: roundTo(Math.max(0, PM25_G_PER_KM[from] - PM25_G_PER_KM[to]) * km, 2),
-        co2KgSavedPerYear: Math.round(co2 * WORKING_WEEKS_PER_YEAR),
-      };
-    })
-    .sort((a, b) => b.co2KgSavedPerWeek - a.co2KgSavedPerWeek);
+  return (
+    realisticAlternatives(profile.commute.distanceKm)
+      .filter((to) => to !== from && CO2_KG_PER_KM[to] < CO2_KG_PER_KM[from])
+      .map((to) => {
+        const co2 = (CO2_KG_PER_KM[from] - CO2_KG_PER_KM[to]) * km;
+        return {
+          to,
+          co2KgSavedPerWeek: roundTo(co2),
+          pm25GramsSavedPerWeek: roundTo(Math.max(0, PM25_G_PER_KM[from] - PM25_G_PER_KM[to]) * km, 2),
+          co2KgSavedPerYear: Math.round(co2 * WORKING_WEEKS_PER_YEAR),
+        };
+      })
+      // Shared transport first (something to do every day), remote work last.
+      .sort(
+        (a, b) =>
+          Number(a.to === "work_from_home") - Number(b.to === "work_from_home") ||
+          b.co2KgSavedPerWeek - a.co2KgSavedPerWeek,
+      )
+  );
 }
 
 export interface IndoorEstimate {
@@ -184,6 +191,31 @@ export const COMMUNITY_SCALES = [
   { id: "building", label: "Our building or lane (40 homes)", households: 40 },
   { id: "ward", label: "Our ward (1,000 homes)", households: 1000 },
 ] as const;
+
+/** The scale used for community numbers in the plan. */
+export const BUILDING_SCALE = COMMUNITY_SCALES[1];
+
+/** A mature tree takes up roughly 21 kg of CO2 a year (European Environment Agency). */
+export const TREE_KG_CO2_PER_YEAR = 21;
+
+/** How many trees' yearly uptake a CO2 saving equals (at least 1 for any saving). */
+export function treesEquivalent(co2KgPerYear: number): number {
+  return co2KgPerYear > 0 ? Math.max(1, Math.round(co2KgPerYear / TREE_KG_CO2_PER_YEAR)) : 0;
+}
+
+/** Percent cut from `before` to `after`, never negative. */
+export function cutPercent(before: number, after: number): number {
+  return before > 0 ? Math.max(0, Math.round((1 - after / before) * 100)) : 0;
+}
+
+/**
+ * PM2.5 breathed during exercise for the simulator: at the worst hour, moved to
+ * the cleanest window, or moved indoors with a filter.
+ */
+export function simulatedExerciseDose(exercise: ExerciseShift, choice: "worst" | "best" | "indoors"): number {
+  if (choice === "indoors") return exercise.indoorDose;
+  return choice === "best" ? exercise.doseAtBest : exercise.doseAtWorst;
+}
 
 export interface CommunityImpact {
   households: number;

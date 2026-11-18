@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { mean, roundTo } from "../math";
 import { pm25ToAqi } from "./aqi";
-import type { AirReport, DailyOutlook, HourlyAir, Place } from "./types";
+import { dateOf, type AirReport, type DailyOutlook, type HourlyAir, type Place, type Pollutant } from "./types";
 
 /**
  * Thin client for the free Open-Meteo geocoding and air-quality APIs.
@@ -52,6 +52,12 @@ const airSchema = z.object({
     nitrogen_dioxide: nullableNumber,
     ozone: nullableNumber,
     carbon_monoxide: nullableNumber,
+    us_aqi_pm2_5: nullableNumber.optional(),
+    us_aqi_pm10: nullableNumber.optional(),
+    us_aqi_nitrogen_dioxide: nullableNumber.optional(),
+    us_aqi_ozone: nullableNumber.optional(),
+    us_aqi_carbon_monoxide: nullableNumber.optional(),
+    us_aqi_sulphur_dioxide: nullableNumber.optional(),
   }),
   hourly: z.object({
     time: z.array(z.string()),
@@ -108,11 +114,49 @@ export async function geocodeCity(city: string, fetcher: FetchLike = fetch): Pro
 
 const round1 = (n: number | null) => roundTo(n ?? 0);
 
+const SUB_INDEX_FIELDS = {
+  pm25: "us_aqi_pm2_5",
+  pm10: "us_aqi_pm10",
+  no2: "us_aqi_nitrogen_dioxide",
+  ozone: "us_aqi_ozone",
+  co: "us_aqi_carbon_monoxide",
+  so2: "us_aqi_sulphur_dioxide",
+} as const satisfies Record<Pollutant, string>;
+
+const CURRENT_FIELDS = [
+  "us_aqi",
+  "pm2_5",
+  "pm10",
+  "nitrogen_dioxide",
+  "ozone",
+  "carbon_monoxide",
+  ...Object.values(SUB_INDEX_FIELDS),
+].join(",");
+
+/** The pollutant with the highest AQI sub-index; PM2.5 when data is missing. */
+export function dominantPollutant(
+  current: Partial<Record<(typeof SUB_INDEX_FIELDS)[Pollutant], number | null>>,
+): Pollutant {
+  let best: Pollutant = "pm25";
+  let bestValue = -1;
+  for (const [pollutant, field] of Object.entries(SUB_INDEX_FIELDS) as [
+    Pollutant,
+    (typeof SUB_INDEX_FIELDS)[Pollutant],
+  ][]) {
+    const value = current[field] ?? -1;
+    if (value > bestValue) {
+      best = pollutant;
+      bestValue = value;
+    }
+  }
+  return best;
+}
+
 /** Daily mean PM2.5 for each day after `today`, skipping missing hours. */
 function buildOutlook(times: string[], pm25: (number | null)[], today: string): DailyOutlook[] {
   const byDay = new Map<string, number[]>();
   times.forEach((time, i) => {
-    const date = time.slice(0, 10);
+    const date = dateOf(time);
     const value = pm25[i];
     if (date <= today || value === null) return;
     byDay.set(date, [...(byDay.get(date) ?? []), value]);
@@ -130,7 +174,7 @@ export async function fetchAirReport(place: Place, fetcher: FetchLike = fetch): 
   const url = new URL(AIR_URL);
   url.searchParams.set("latitude", place.latitude.toFixed(3));
   url.searchParams.set("longitude", place.longitude.toFixed(3));
-  url.searchParams.set("current", "us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone,carbon_monoxide");
+  url.searchParams.set("current", CURRENT_FIELDS);
   url.searchParams.set("hourly", "us_aqi,pm2_5");
   url.searchParams.set("forecast_days", String(FORECAST_DAYS));
   url.searchParams.set("timezone", "auto");
@@ -158,9 +202,10 @@ export async function fetchAirReport(place: Place, fetcher: FetchLike = fetch): 
       no2: round1(current.nitrogen_dioxide),
       ozone: round1(current.ozone),
       co: round1(current.carbon_monoxide),
+      dominant: dominantPollutant(current),
     },
     next24h,
-    outlook: buildOutlook(hourly.time, hourly.pm2_5, current.time.slice(0, 10)),
+    outlook: buildOutlook(hourly.time, hourly.pm2_5, dateOf(current.time)),
     source: "open-meteo",
   };
 }

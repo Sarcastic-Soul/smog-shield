@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { generatePlan, isRetryable, resetBreaker, streamAnswer } from "@/lib/ai/gemini";
+import { generatePlan, geminiBreaker, isAiAvailable, isRetryable, streamAnswer } from "@/lib/ai/gemini";
 import { planResultFixture } from "../../fixtures/results";
 
 const samplePlan = planResultFixture().plan;
@@ -95,7 +95,7 @@ describe("gemini client", () => {
 
 describe("model chain and circuit breaker", () => {
   beforeEach(() => {
-    resetBreaker();
+    geminiBreaker.reset();
     vi.stubEnv("GEMINI_API_KEY", "test-key");
     vi.stubEnv("GEMINI_MODEL", "");
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -154,7 +154,7 @@ describe("model chain and circuit breaker", () => {
     await expect(generatePlan("p")).resolves.toBeNull();
     expect(generateContent).toHaveBeenCalledTimes(3);
 
-    resetBreaker();
+    geminiBreaker.reset();
     await expect(generatePlan("p")).resolves.toEqual(samplePlan);
     expect(generateContent).toHaveBeenCalledTimes(4);
   });
@@ -192,6 +192,36 @@ describe("model chain and circuit breaker", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports availability from the breaker", async () => {
+    expect(isAiAvailable()).toBe(true);
+    generateContent.mockResolvedValue({ text: "not json" });
+    for (let i = 0; i < 3; i++) await generatePlan("p");
+    expect(isAiAvailable()).toBe(false);
+    geminiBreaker.reset();
+    expect(isAiAvailable()).toBe(true);
+  });
+
+  it("counts failed stream starts toward the breaker and a good start as success", async () => {
+    generateContentStream.mockRejectedValue(Object.assign(new Error("bad"), { status: 400 }));
+    for (let i = 0; i < 3; i++) await expect(streamAnswer("q").next()).rejects.toThrow("bad");
+    expect(isAiAvailable()).toBe(false);
+    geminiBreaker.reset();
+
+    generateContentStream.mockRejectedValue(Object.assign(new Error("bad"), { status: 400 }));
+    await expect(streamAnswer("q").next()).rejects.toThrow();
+    await expect(streamAnswer("q").next()).rejects.toThrow();
+    generateContentStream.mockResolvedValueOnce(
+      (async function* () {
+        yield { text: "ok" };
+      })(),
+    );
+    await streamAnswer("q").next();
+    generateContentStream.mockRejectedValue(Object.assign(new Error("bad"), { status: 400 }));
+    await expect(streamAnswer("q").next()).rejects.toThrow();
+    await expect(streamAnswer("q").next()).rejects.toThrow();
+    expect(isAiAvailable()).toBe(true);
   });
 
   it("retries a stream that fails to start on the next model", async () => {

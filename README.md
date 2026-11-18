@@ -8,7 +8,7 @@ A GenAI assistant that helps families and their neighbours get through winter sm
 
 ## What it does
 
-1. **Live readings.** The server geocodes the city and pulls the current US AQI, PM2.5, PM10, NO₂, ozone and CO, a 24-hour hourly forecast and a 3-day outlook from [Open-Meteo](https://open-meteo.com/en/docs/air-quality-api) (CAMS data, no key needed).
+1. **Live readings.** The server geocodes the city and pulls the current US AQI and the pollutant driving it (PM2.5, PM10, NO₂, ozone, CO, SO₂), a 24-hour hourly forecast and a 3-day outlook from [Open-Meteo](https://open-meteo.com/en/docs/air-quality-api) (CAMS data, no key needed).
 2. **Household context.** The family enters adults, children, people over 65, health conditions (asthma, COPD, heart disease, pregnancy, allergies), commute mode and distance, cooking fuel, heating, purifier, indoor smoking, waste burning nearby, daily outdoor minutes, budget, language and a free-text note ("my son has cricket at 5pm").
 3. **Rule engine (deterministic, tested).** `src/lib/domain/` turns readings and profile into facts:
    - household risk (sensitive members push risk up one band, as the EPA scale does), and whether an N95 is advised,
@@ -19,9 +19,10 @@ A GenAI assistant that helps families and their neighbours get through winter sm
    - 3-day trend (worsening, steady, improving),
    - safety alerts: carbon monoxide from coal or wood fires, NO₂ from unflued gas heaters, smoking near sensitive people.
 4. **Gemini writes the plan.** The facts go to Gemini (`gemini-3.5-flash-lite`, with `gemini-3.1-flash-lite` and `gemini-3-flash-preview` as overload backups) with structured JSON output against a zod schema. The system prompt makes it quote only the given numbers, start from the local time now, fit the family's own plans into cleaner hours, name each at-risk group, suit the budget and write in the chosen language (English, Hindi, Urdu, Bengali or Punjabi).
-5. **Rules check the AI.** English Gemini plans are topped up from the rule engine if they come back thin (fewer than 3 indoor fixes, 3 swaps or 2 community actions). If Gemini is down, slow or returns invalid output, the full rule-based plan is used, and the page says so.
-6. **Try a change, see the effect.** A client-side simulator lets the family switch commute modes, scale the change to their building or ward, toggle a purifier, and move or bring indoors their exercise, with numbers updating instantly and no extra requests.
-7. **Ask follow-up questions.** A streamed Q&A box answers questions like "Is it safe for my kids to play outside after school?" using the same server-built facts.
+5. **Instant draft, then Gemini.** The plan streams as NDJSON: a rule-based draft appears in about a second, and Gemini's tailored plan replaces it when ready (10 to 20 s at peak), so nobody stares at a spinner.
+6. **Rules check the AI.** English Gemini plans are topped up from the rule engine if they come back thin (fewer than 3 indoor fixes or 2 community actions, or a top commute swap missing). If Gemini is down, slow or returns invalid output, the full rule-based plan is used, and the page says so.
+7. **Try a change, see the effect.** A client-side simulator lets the family switch commute modes, scale the change to their building or ward, toggle a purifier, and move or bring indoors their exercise, with numbers updating instantly and no extra requests.
+8. **Ask follow-up questions.** A streamed Q&A box answers questions like "Is it safe for my kids to play outside after school?" using the same server-built facts.
 
 ## How it works
 
@@ -30,11 +31,13 @@ Browser ──POST /api/plan {profile}──▶ Route handler
                                        ├─ same-site check, 8 KB body limit, strict zod schema, per-IP rate limit
                                        ├─ getAirReport(city)  geocode cache 24 h, air cache 10 min by coords ──▶ Open-Meteo
                                        ├─ buildInsights(profile, report)                  (pure functions)
+                                       ├─ NDJSON line 1: rule-based draft (instant)
                                        ├─ generatePlan(facts)  JSON schema, model chain   ──▶ Gemini
                                        │     ├─ reconcilePlan(): fill gaps from rules
-                                       │     └─ on failure: buildFallbackPlan()  (circuit breaker after 3 failures)
+                                       │     └─ on failure: keep rules plan  (circuit breaker after 3 failures)
+                                       ├─ NDJSON line 2: final plan
                                        └─ plan cache per (forecast hour, profile): AI 1 h, rules 60 s
-        ◀── { report, insights, plan, source }
+        ◀── {kind:"draft"|"final", result:{ report, insights, plan, source }}
 
 Browser ──POST /api/ask {profile, question}──▶ facts rebuilt on the server ──▶ Gemini stream ──▶ text/plain stream
 ```
@@ -55,9 +58,9 @@ Browser ──POST /api/ask {profile, question}──▶ facts rebuilt on the se
 
 - The Gemini key lives only on the server (`server-only` guard). The browser talks only to this app.
 - Page CSP uses a fresh nonce per request with `'strict-dynamic'`, so no injected inline script can run. API responses get `default-src 'none'`. Also HSTS, `X-Frame-Options: DENY`, `nosniff`, strict referrer and permissions policies.
-- Request bodies are capped by declared and real byte size, then validated with strict zod schemas (unknown keys rejected, numbers bounded, city limited to letters).
+- Request bodies are capped by declared size and by a streaming byte counter that stops reading past 8 KB, then validated with strict zod schemas (unknown keys rejected, numbers bounded, city limited to letters).
 - Cross-site browser calls to the API are refused, so other pages cannot spend the AI quota.
-- User free text is stripped of `<` `>` and wrapped in tags the system prompt marks as data. Model output is schema-validated before use. `/api/ask` rebuilds facts on the server, so a client cannot feed fake numbers to the model, and the assistant refuses off-topic requests.
+- User free text is NFKC-normalised, stripped of invisible control/format characters, `<` `>` and fake section labels, then wrapped in tags the system prompt marks as data. Model output is schema-validated before use. `/api/ask` rebuilds facts on the server, so a client cannot feed fake numbers to the model, and the assistant refuses off-topic requests.
 - Per-IP rate limits (10 plans/min, 20 questions/min, keyed on Vercel's `x-real-ip`), upstream timeouts, generic error messages.
 
 ## Efficiency
@@ -65,7 +68,8 @@ Browser ──POST /api/ask {profile, question}──▶ facts rebuilt on the se
 - Geocoding is cached for a day (unknown cities too), air data for 10 minutes keyed by rounded coordinates, and concurrent requests for the same key share one upstream call.
 - Gemini plans are cached per forecast hour and profile. After a failure, the rules plan is reused for a minute and a circuit breaker skips Gemini for 60 s after 3 failures in a row, so users never wait on a model that is down.
 - Each model attempt has its own timeout inside an overall budget; follow-up answers stream so text shows at once.
-- The simulator is pure client maths on numbers already sent. No animation library: the one entrance animation is CSS.
+- The first useful plan arrives in about a second (streamed rules draft); functions run in Mumbai (`bom1`) near the main users.
+- The simulator uses domain helpers on numbers already sent. No animation library, and zod is lazy-loaded on the client so it is not in the first page load.
 - Window search is a single O(n) sliding sum.
 
 ## Accessibility

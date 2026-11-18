@@ -30,8 +30,8 @@ test.describe("plan flow", () => {
     await expect(airNow.getByText("High risk for your home")).toBeVisible();
 
     const forecast = page.getByRole("region", { name: "Next 24 hours" });
-    await expect(forecast).toContainText("Cleanest 12:00–14:00");
-    await expect(forecast).toContainText("Worst 19:00–21:00");
+    await expect(forecast).toContainText("Cleanest today 12:00–14:00");
+    await expect(forecast).toContainText("Worst today 19:00–21:00");
     await expect(forecast.locator("table caption")).toHaveText(/^Hourly .*forecast$/);
 
     const plan = page.getByRole("region", { name: result.plan.headline });
@@ -39,7 +39,7 @@ test.describe("plan flow", () => {
     await expect(plan.getByText("07:00", { exact: true })).toBeVisible();
     await expect(plan.getByRole("heading", { name: "Cleaner air indoors" })).toBeVisible();
     await expect(plan.getByRole("heading", { name: "Swaps that cut emissions" })).toBeVisible();
-    await expect(plan.getByText(/Petrol car → Work from home/)).toBeVisible();
+    await expect(plan.getByText(/Petrol car → Bus/)).toBeVisible();
   });
 
   test("tags routine steps that fall tomorrow", async ({ page }) => {
@@ -79,7 +79,7 @@ test.describe("plan flow", () => {
   });
 
   test("changing the plan language sends it and marks Urdu text right to left", async ({ page }) => {
-    const bodies = await mockPlan(page);
+    const bodies = await mockPlan(page, "gemini");
     await page.goto("/");
     const language = page.getByLabel("Plan language");
     await expect(language).toHaveValue("en");
@@ -117,9 +117,9 @@ test.describe("plan flow", () => {
     const simulator = page.getByRole("region", { name: "Try a change, see the effect" });
     const commuteOutput = simulator.getByRole("status").first();
 
-    const wfh = result.insights.commute.swaps.find((s) => s.to === "work_from_home")!;
+    const first = result.insights.commute.swaps[0];
     const metro = result.insights.commute.swaps.find((s) => s.to === "metro")!;
-    await expect(commuteOutput).toContainText(`${wfh.co2KgSavedPerYear} kg`);
+    await expect(commuteOutput).toContainText(`${first.co2KgSavedPerYear} kg`);
 
     await simulator.getByRole("radio", { name: "Metro / train" }).check();
     await expect(commuteOutput).toContainText(`${metro.co2KgSavedPerYear} kg`);
@@ -163,9 +163,22 @@ test.describe("plan flow", () => {
     await page.getByRole("button", { name: /Build today's plan/ }).click();
 
     const alert = page.locator("#results").getByRole("alert");
-    await expect(alert).toContainText("We could not build your plan.");
+    await expect(alert).toContainText("We could not build your plan");
     await expect(alert).toContainText('We could not find "Atlantis"');
     await expect(page.getByRole("button", { name: /Build today's plan/ })).toBeEnabled();
+  });
+
+  test("shows an error when the plan stream ends without a final plan", async ({ page }) => {
+    await page.route("**/api/plan", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/x-ndjson",
+        body: `${JSON.stringify({ kind: "draft", result })}\n`,
+      }),
+    );
+    await page.goto("/");
+    await page.getByRole("button", { name: /Build today's plan/ }).click();
+    await expect(page.locator("#results").getByRole("alert")).toContainText("The plan was cut off");
   });
 
   test("blocks a bad city before calling the API", async ({ page }) => {
@@ -173,7 +186,7 @@ test.describe("plan flow", () => {
     await page.goto("/");
     await page.getByLabel("Where do you live?").fill("<script>");
     await page.getByRole("button", { name: /Build today's plan/ }).click();
-    await expect(page.locator("#results").getByRole("alert")).toContainText("Use letters only");
+    await expect(page.locator("#results").getByRole("alert")).toContainText("Use English letters for the city name");
     expect(bodies).toHaveLength(0);
   });
 
