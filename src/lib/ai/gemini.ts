@@ -26,7 +26,8 @@ let client: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  client ??= new GoogleGenAI({ apiKey });
+  // v1beta serves both stable and preview models used in the fallback chain.
+  client ??= new GoogleGenAI({ apiKey, apiVersion: "v1beta" });
   return client;
 }
 
