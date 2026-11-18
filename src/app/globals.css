@@ -1,26 +1,100 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --paper: #f6f4ef;
+  --paper-raised: #fbfaf7;
+  --ink: #1d1c1a;
+  --ink-muted: #5f5c55;
+  --rule: #e2ded5;
+  --accent: #1f4d3a;
+  --accent-ink: #f6f4ef;
+  --accent-soft: #e4ece6;
+  --alert: #8f2a22;
+  --alert-soft: #f8e6e3;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* AQI band colours, toned down to sit on paper but kept distinct. */
+  --aqi-good: #3f8a55;
+  --aqi-moderate: #c9a227;
+  --aqi-sensitive: #d97a2b;
+  --aqi-unhealthy: #c4432f;
+  --aqi-very-unhealthy: #7d3a6b;
+  --aqi-hazardous: #6b2320;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #181816;
+    --paper-raised: #201f1c;
+    --ink: #ece9e2;
+    --ink-muted: #a8a399;
+    --rule: #34322d;
+    --accent: #8cc3a5;
+    --accent-ink: #12201a;
+    --accent-soft: #22322a;
+    --alert: #f0a196;
+    --alert-soft: #3a211e;
   }
 }
 
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-alert: var(--alert);
+  --color-alert-soft: var(--alert-soft);
+  --font-sans: var(--font-geist);
+  --font-serif: var(--font-newsreader);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-geist), "Helvetica Neue", sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.field {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  padding: 0.5rem 0.75rem;
+  color: var(--ink);
+}
+
+.field:hover {
+  border-color: var(--ink-muted);
+}
+
+.field:focus-visible {
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
