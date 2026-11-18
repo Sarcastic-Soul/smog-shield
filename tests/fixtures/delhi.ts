@@ -1,4 +1,6 @@
-import type { AirReport, HourlyAir, Place } from "@/lib/air/types";
+import { pm25ToAqi } from "@/lib/air/aqi";
+import type { AirReport, DailyOutlook, HourlyAir, Place } from "@/lib/air/types";
+import { mean, roundTo } from "@/lib/math";
 
 /**
  * Realistic winter day for New Delhi. PM2.5 sits between 45 and 120 µg/m³:
@@ -22,16 +24,18 @@ const aqiFor = (pm25: number) => Math.round(pm25 * 1.9);
 
 export const TODAY = "2026-01-15";
 export const TOMORROW = "2026-01-16";
+export const DAY_AFTER = "2026-01-17";
+export const DAY_THREE = "2026-01-18";
 export const NOW_HOUR = 10;
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** 48 hourly points, today 00:00 to tomorrow 23:00. */
+/** 96 hourly points, today 00:00 to the end of day four (forecast_days=4). */
 export function hourlyPoints(): { time: string; pm25: number; aqi: number }[] {
   const points: { time: string; pm25: number; aqi: number }[] = [];
-  for (const date of [TODAY, TOMORROW]) {
+  for (const date of [TODAY, TOMORROW, DAY_AFTER, DAY_THREE]) {
     for (let h = 0; h < 24; h++) {
       const pm25 = PM25_BY_HOUR[h];
       points.push({ time: `${date}T${pad(h)}:00`, pm25, aqi: aqiFor(pm25) });
@@ -77,6 +81,12 @@ export function airResponse() {
   };
 }
 
+/** Every day repeats the same curve, so each daily mean is 88.6 µg/m³. */
+export function delhiOutlook(): DailyOutlook[] {
+  const avgPm25 = roundTo(mean(PM25_BY_HOUR));
+  return [TOMORROW, DAY_AFTER, DAY_THREE].map((date) => ({ date, avgPm25, aqi: pm25ToAqi(avgPm25) }));
+}
+
 /** The AirReport our code should build from the responses above. */
 export function delhiReport(): AirReport {
   const next24h: HourlyAir[] = hourlyPoints()
@@ -95,6 +105,7 @@ export function delhiReport(): AirReport {
       co: 910,
     },
     next24h,
+    outlook: delhiOutlook(),
     source: "open-meteo",
   };
 }

@@ -36,9 +36,35 @@ describe("POST /api/plan", () => {
     expect(body.source).toBe("rules");
   });
 
-  it("looks the city up with a normalised key", async () => {
-    await call({ profile: { ...validProfile(), city: "  New   DELHI " } });
-    expect(mockedAir).toHaveBeenCalledWith("new delhi");
+  it("looks the city up by the trimmed name from the profile", async () => {
+    await call({ profile: { ...validProfile(), city: "  New Delhi " } });
+    expect(mockedAir).toHaveBeenCalledWith("New Delhi");
+  });
+
+  it("returns 403 for a cross-site request before reading the body", async () => {
+    const request = new Request("http://test.local/api/plan", {
+      method: "POST",
+      headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+      body: "{}",
+    });
+    const response = await POST(request);
+    expect(response.status).toBe(403);
+    expect(mockedAir).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 for an oversized body declared by content-length", async () => {
+    const request = new Request("http://test.local/api/plan", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": "99999" },
+      body: "{}",
+    });
+    expect((await POST(request)).status).toBe(413);
+  });
+
+  it("checks the body before the rate limit, so bad bodies do not use up a slot", async () => {
+    const ip = freshIp();
+    for (let i = 0; i < 12; i++) expect((await call("{nope", ip)).status).toBe(400);
+    expect((await call({ profile: validProfile() }, ip)).status).toBe(200);
   });
 
   it("returns 422 for an invalid profile", async () => {
@@ -84,5 +110,17 @@ describe("POST /api/plan", () => {
     expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
     // A different address is unaffected.
     expect((await call({ profile: validProfile() })).status).toBe(200);
+  });
+
+  it("exports a max duration above the 18 s plan budget", async () => {
+    const route = await import("@/app/api/plan/route");
+    expect(route.maxDuration).toBeGreaterThanOrEqual(20);
+  });
+
+  it("returns the outlook and community facts in the insights", async () => {
+    const body = await (await call({ profile: validProfile() })).json();
+    expect(body.insights.outlook.days).toHaveLength(3);
+    expect(body.insights.community.households).toBe(40);
+    expect(body.plan.communityActions.length).toBeGreaterThanOrEqual(1);
   });
 });

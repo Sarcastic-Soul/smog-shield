@@ -1,5 +1,5 @@
 import type { Profile } from "../domain/profile";
-import type { PlanResult } from "../server/plan-service";
+import type { PlanResult } from "../domain/result";
 
 async function errorMessage(response: Response): Promise<string> {
   try {

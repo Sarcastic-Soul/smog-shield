@@ -44,7 +44,11 @@ describe("assessRisk", () => {
 describe("sensitiveGroupsOf", () => {
   it("lists children, older adults and each condition", () => {
     const groups = sensitiveGroupsOf(makeProfile());
-    expect(groups).toEqual(["children", "older adults", "someone with asthma"]);
+    expect(groups).toEqual([
+      { id: "children", label: "children" },
+      { id: "seniors", label: "older adults" },
+      { id: "asthma", label: "someone with asthma" },
+    ]);
   });
 
   it("is empty for a healthy adult household", () => {

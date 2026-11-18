@@ -1,32 +1,27 @@
 import { z } from "zod";
-import { AirDataError } from "@/lib/air/open-meteo";
-import { generatePlan } from "@/lib/ai/gemini";
 import { profileSchema } from "@/lib/domain/profile";
-import { getAirReport, normaliseCity } from "@/lib/server/air-service";
-import { clientKey, jsonError, readJson } from "@/lib/server/http";
-import { createPlanService } from "@/lib/server/plan-service";
-import { createRateLimiter } from "@/lib/server/rate-limit";
+import { clientKey, errorResponse, isCrossSite, jsonError, readJson } from "@/lib/server/http";
+import { planLimiter, planService } from "@/lib/server/services";
+
+/** Gemini can take a while at peak times; the plan has its own 26 s budget. */
+export const maxDuration = 40;
 
 const bodySchema = z.object({ profile: profileSchema }).strict();
-const limiter = createRateLimiter(10, 60_000);
-const planFor = createPlanService({ getAirReport, generatePlan });
 
 export async function POST(request: Request): Promise<Response> {
-  const wait = limiter.check(clientKey(request));
-  if (wait > 0) return jsonError(429, "Too many requests. Try again shortly.", { "Retry-After": String(wait) });
+  if (isCrossSite(request)) return jsonError(403, "Cross-site requests are not allowed");
 
   const body = await readJson(request, bodySchema);
   if (!body.ok) return body.response;
 
+  const wait = planLimiter.check(clientKey(request));
+  if (wait > 0) return jsonError(429, "Too many requests. Try again shortly.", { "Retry-After": String(wait) });
+
   try {
     const { profile } = body.data;
-    const result = await planFor(profile, normaliseCity(profile.city));
+    const result = await planService.planFor(profile, profile.city);
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    if (error instanceof AirDataError) {
-      return jsonError(error.kind === "not_found" ? 404 : 502, error.message);
-    }
-    console.error("Plan request failed", error);
-    return jsonError(500, "Something went wrong building your plan.");
+    return errorResponse(error, "Something went wrong building your plan.");
   }
 }

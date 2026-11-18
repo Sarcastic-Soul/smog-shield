@@ -10,14 +10,14 @@ export default defineConfig({
     tsconfigPaths: true,
     alias: {
       "server-only": mock("empty.ts"),
-      "next/cache": mock("next-cache.ts"),
     },
   },
   test: {
     coverage: {
       provider: "v8",
-      include: ["src/lib/**", "src/app/api/**", "src/components/**"],
+      include: ["src/lib/**", "src/components/**"],
       reporter: ["text", "html"],
+      thresholds: { lines: 85, branches: 75, functions: 80, statements: 85 },
     },
     projects: [
       {

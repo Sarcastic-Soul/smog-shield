@@ -3,7 +3,8 @@
 import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { askQuestion } from "@/lib/client/api";
-import type { Profile } from "@/lib/domain/profile";
+import { isAbortError, messageOf } from "@/lib/client/errors";
+import { RTL_LANGUAGES, type Profile } from "@/lib/domain/profile";
 
 const SUGGESTIONS = [
   "Is it safe for my kids to play outside after school?",
@@ -35,7 +36,7 @@ export function AskPanel({ profile }: { profile: Profile }) {
       await askQuestion(profile, trimmed, setAnswer, controller.current.signal);
       setQuestion("");
     } catch (err) {
-      if ((err as Error).name !== "AbortError") setError((err as Error).message);
+      if (!isAbortError(err)) setError(messageOf(err));
     } finally {
       setBusy(false);
     }
@@ -93,10 +94,16 @@ export function AskPanel({ profile }: { profile: Profile }) {
       </form>
 
       <div aria-live="polite" aria-busy={busy} className="mt-6 max-w-2xl">
-        {asked && (
-          <p className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted">You asked: {asked}</p>
+        {asked && <p className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted">You asked: {asked}</p>}
+        {answer && (
+          <p
+            lang={profile.language}
+            dir={RTL_LANGUAGES.has(profile.language) ? "rtl" : "ltr"}
+            className="mt-2 whitespace-pre-line text-lg"
+          >
+            {answer}
+          </p>
         )}
-        {answer && <p className="mt-2 whitespace-pre-line text-lg">{answer}</p>}
         {busy && !answer && <p className="mt-2 text-ink-muted">Thinking…</p>}
         {error && (
           <p role="alert" className="mt-2 text-alert">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { COMMUNITY_SCALES, communityImpact } from "@/lib/domain/impact";
 import type { Insights } from "@/lib/domain/insights";
 import { COMMUTE_LABELS, type Profile } from "@/lib/domain/profile";
 import { clockLabel } from "@/lib/domain/windows";
@@ -22,11 +23,24 @@ export function ImpactSimulator({ profile, insights }: Props) {
   const [swapTo, setSwapTo] = useState(swaps[0]?.to ?? null);
   const [runPurifier, setRunPurifier] = useState(true);
   const [shiftExercise, setShiftExercise] = useState(true);
+  const [scaleId, setScaleId] = useState<(typeof COMMUNITY_SCALES)[number]["id"]>("home");
   const groupName = useId();
+  const scaleSelectId = useId();
 
   const swap = swaps.find((s) => s.to === swapTo) ?? null;
+  const scale = COMMUNITY_SCALES.find((s) => s.id === scaleId) ?? COMMUNITY_SCALES[0];
+  const scaled = swap && scale.households > 1 ? communityImpact(swap, scale.households) : null;
   const { indoor, exercise, windows } = insights;
   const indoorNow = runPurifier ? indoor.indoorWithPurifier : indoor.indoorPm25;
+  // On high-risk days the plan says to exercise indoors, so the simulator offers that instead.
+  const exerciseIndoors = insights.risk.level === "high" || insights.risk.level === "severe";
+  const shiftedDose = !exercise
+    ? 0
+    : !shiftExercise
+      ? exercise.doseAtWorst
+      : exerciseIndoors
+        ? exercise.indoorDose
+        : exercise.doseAtBest;
 
   return (
     <section aria-labelledby="impact-title" className="border-b border-rule py-10">
@@ -41,10 +55,16 @@ export function ImpactSimulator({ profile, insights }: Props) {
       <div className="mt-8 grid gap-10 md:grid-cols-3">
         <fieldset>
           <legend className="mb-3 font-medium">
-            Commute instead of {COMMUTE_LABELS[profile.commute.mode].toLowerCase()}
+            {insights.commute.weeklyKm === 0
+              ? "Your commute"
+              : `Commute instead of ${COMMUTE_LABELS[profile.commute.mode].toLowerCase()}`}
           </legend>
           {swaps.length === 0 ? (
-            <p className="text-sm text-ink-muted">Your commute is already low emission.</p>
+            <p className="text-sm text-ink-muted">
+              {insights.commute.weeklyKm === 0
+                ? "No commute emissions this week, so there is nothing to swap."
+                : "Your commute is already low emission."}
+            </p>
           ) : (
             <div className="space-y-1">
               {swaps.map((s) => (
@@ -62,14 +82,44 @@ export function ImpactSimulator({ profile, insights }: Props) {
             </div>
           )}
           {swap && (
-            <output className="mt-4 block border-t border-ink pt-3" aria-live="polite">
-              <span className="block font-serif text-4xl tabular-nums">{swap.co2KgSavedPerYear} kg</span>
-              <span className="text-sm">
-                CO₂ saved a year ({swap.co2KgSavedPerWeek} kg a week) — what about{" "}
-                {Math.max(1, Math.round(swap.co2KgSavedPerYear / TREE_KG_CO2_PER_YEAR))} trees take up in a year.
-                Plus {swap.pm25GramsSavedPerWeek} g less tailpipe soot on your streets each week.
-              </span>
-            </output>
+            <>
+              <label htmlFor={scaleSelectId} className="mt-4 mb-1 block text-sm">
+                How many homes make this change?
+              </label>
+              <select
+                id={scaleSelectId}
+                className="field"
+                value={scaleId}
+                onChange={(e) => setScaleId(e.target.value as typeof scaleId)}
+              >
+                {COMMUNITY_SCALES.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <output className="mt-4 block border-t border-ink pt-3" aria-live="polite">
+                {scaled ? (
+                  <>
+                    <span className="block font-serif text-4xl tabular-nums">{scaled.co2TonnesPerYear} t</span>
+                    <span className="text-sm">
+                      CO₂ saved a year by {scaled.households.toLocaleString("en-IN")} homes, about{" "}
+                      {Math.round((scaled.co2TonnesPerYear * 1000) / TREE_KG_CO2_PER_YEAR).toLocaleString("en-IN")}{" "}
+                      trees&apos; worth, and {scaled.pm25KgPerYear} kg less tailpipe soot in your area.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="block font-serif text-4xl tabular-nums">{swap.co2KgSavedPerYear} kg</span>
+                    <span className="text-sm">
+                      CO₂ saved a year ({swap.co2KgSavedPerWeek} kg a week), what about{" "}
+                      {Math.max(1, Math.round(swap.co2KgSavedPerYear / TREE_KG_CO2_PER_YEAR))} trees take up in a year.
+                      Plus {swap.pm25GramsSavedPerWeek} g less tailpipe soot on your streets each week.
+                    </span>
+                  </>
+                )}
+              </output>
+            </>
           )}
         </fieldset>
 
@@ -104,17 +154,17 @@ export function ImpactSimulator({ profile, insights }: Props) {
                   checked={shiftExercise}
                   onChange={(e) => setShiftExercise(e.target.checked)}
                 />
-                Move my {exercise.minutes}-min walk to {clockLabel(windows.best.start)}
+                {exerciseIndoors
+                  ? `Do my ${exercise.minutes}-min exercise indoors, purifier on`
+                  : `Move my ${exercise.minutes}-min walk to ${clockLabel(windows.best.start)}`}
               </label>
               <output className="mt-4 block border-t border-ink pt-3" aria-live="polite">
-                <span className="block font-serif text-4xl tabular-nums">
-                  {shiftExercise ? exercise.doseAtBest : exercise.doseAtWorst} µg
-                </span>
+                <span className="block font-serif text-4xl tabular-nums">{shiftedDose} µg</span>
                 <span className="text-sm">
                   of PM2.5 breathed in
                   {shiftExercise
-                    ? ` — ${exercise.cutPercent}% less than at ${clockLabel(windows.worst.start)}. Indoors with a purifier: ${exercise.indoorDose} µg.`
-                    : ` at the worst hour, ${clockLabel(windows.worst.start)}.`}
+                    ? ` — ${Math.round((1 - shiftedDose / Math.max(1, exercise.doseAtWorst)) * 100)}% less than outside at ${clockLabel(windows.worst.start)}.`
+                    : ` exercising outside at the worst hour, ${clockLabel(windows.worst.start)}.`}
                 </span>
               </output>
             </>

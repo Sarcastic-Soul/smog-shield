@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AirDataError, fetchAirReport, geocodeCity } from "@/lib/air/open-meteo";
 import { airResponse, delhiReport, DELHI_PLACE, geocodeResponse } from "../../fixtures/delhi";
 
-const jsonFetch = (body: unknown, status = 200) =>
-  vi.fn<typeof fetch>(async () => Response.json(body, { status }));
+beforeEach(() => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+const jsonFetch = (body: unknown, status = 200) => vi.fn<typeof fetch>(async () => Response.json(body, { status }));
 
 describe("geocodeCity", () => {
   it("maps the first hit to a Place", async () => {
@@ -117,6 +120,85 @@ describe("upstream retry", () => {
   it("retries once after a 5xx, then reports the status", async () => {
     const fetcher = jsonFetch({}, 503);
     await expect(geocodeCity("Delhi", fetcher)).rejects.toMatchObject({ kind: "upstream" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("outlook", () => {
+  type Air = ReturnType<typeof airResponse>;
+  const truncate = (data: Air, hours: number): Air => ({
+    ...data,
+    hourly: {
+      time: data.hourly.time.slice(0, hours),
+      us_aqi: data.hourly.us_aqi.slice(0, hours),
+      pm2_5: data.hourly.pm2_5.slice(0, hours),
+    },
+  });
+
+  it("asks for four forecast days", async () => {
+    const fetcher = jsonFetch(airResponse());
+    await fetchAirReport(DELHI_PLACE, fetcher);
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get("forecast_days")).toBe("4");
+  });
+
+  it("gives the daily mean PM2.5 and its AQI for the next three days, not today", async () => {
+    const { outlook } = await fetchAirReport(DELHI_PLACE, jsonFetch(airResponse()));
+    expect(outlook.map((d) => d.date)).toEqual(["2026-01-16", "2026-01-17", "2026-01-18"]);
+    expect(outlook[0]).toEqual({ date: "2026-01-16", avgPm25: 88.6, aqi: 174 });
+  });
+
+  it("skips a last day that has fewer than 12 hours", async () => {
+    const { outlook } = await fetchAirReport(DELHI_PLACE, jsonFetch(truncate(airResponse(), 72 + 11)));
+    expect(outlook.map((d) => d.date)).toEqual(["2026-01-16", "2026-01-17"]);
+  });
+
+  it("keeps a last day that has exactly 12 hours", async () => {
+    const { outlook } = await fetchAirReport(DELHI_PLACE, jsonFetch(truncate(airResponse(), 72 + 12)));
+    expect(outlook.map((d) => d.date)).toHaveLength(3);
+  });
+
+  it("is empty when the forecast ends today", async () => {
+    const { outlook } = await fetchAirReport(DELHI_PLACE, jsonFetch(truncate(airResponse(), 24)));
+    expect(outlook).toEqual([]);
+  });
+
+  it("ignores null PM2.5 hours when averaging and drops a day left with too few", async () => {
+    const data = airResponse();
+    const pm = data.hourly.pm2_5 as (number | null)[];
+    for (let i = 24; i < 24 + 13; i++) pm[i] = null; // 11 hours left on 2026-01-16
+    for (let i = 48; i < 48 + 2; i++) pm[i] = null; // 22 hours left on 2026-01-17
+    const { outlook } = await fetchAirReport(DELHI_PLACE, jsonFetch(data));
+    expect(outlook.map((d) => d.date)).toEqual(["2026-01-17", "2026-01-18"]);
+    expect(outlook[0].avgPm25).toBeGreaterThan(0);
+  });
+});
+
+describe("upstream errors", () => {
+  it("suggests the English spelling when a city is not found", async () => {
+    const error = await geocodeCity("दिल्ली", jsonFetch({})).catch((e) => e);
+    expect(error.message).toContain("English spelling");
+  });
+
+  it("recovers when a 503 is followed by a good answer", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({}, { status: 503 }))
+      .mockResolvedValueOnce(Response.json(airResponse()));
+    await expect(fetchAirReport(DELHI_PLACE, fetcher)).resolves.toMatchObject({ source: "open-meteo" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a 4xx", async () => {
+    const fetcher = jsonFetch({}, 429);
+    await expect(fetchAirReport(DELHI_PLACE, fetcher)).rejects.toMatchObject({ kind: "upstream" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails after two dropped connections", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("socket hang up"));
+    await expect(fetchAirReport(DELHI_PLACE, fetcher)).rejects.toMatchObject({
+      message: "Air quality service did not respond",
+    });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

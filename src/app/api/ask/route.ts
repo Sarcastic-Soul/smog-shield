@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { AirDataError } from "@/lib/air/open-meteo";
 import { isAiConfigured, streamAnswer } from "@/lib/ai/gemini";
-import { buildAskPrompt, buildFacts } from "@/lib/ai/prompt";
-import { buildInsights } from "@/lib/domain/insights";
+import { buildAskPrompt } from "@/lib/ai/prompt";
 import { profileSchema } from "@/lib/domain/profile";
-import { getAirReport, normaliseCity } from "@/lib/server/air-service";
-import { clientKey, jsonError, readJson } from "@/lib/server/http";
-import { createRateLimiter } from "@/lib/server/rate-limit";
+import { clientKey, errorResponse, isCrossSite, jsonError, readJson } from "@/lib/server/http";
+import { askLimiter, planService } from "@/lib/server/services";
+
+/** Streams stop after 25 s on the server side (see ASK_BUDGET_MS). */
+export const maxDuration = 30;
 
 const bodySchema = z
   .object({
@@ -15,25 +15,24 @@ const bodySchema = z
   })
   .strict();
 
-const limiter = createRateLimiter(20, 60_000);
-
 export async function POST(request: Request): Promise<Response> {
-  const wait = limiter.check(clientKey(request));
-  if (wait > 0) return jsonError(429, "Too many questions. Try again shortly.", { "Retry-After": String(wait) });
+  if (isCrossSite(request)) return jsonError(403, "Cross-site requests are not allowed");
   if (!isAiConfigured()) return jsonError(503, "The assistant is offline right now. Your plan still works.");
 
   const body = await readJson(request, bodySchema);
   if (!body.ok) return body.response;
 
+  const wait = askLimiter.check(clientKey(request));
+  if (wait > 0) return jsonError(429, "Too many questions. Try again shortly.", { "Retry-After": String(wait) });
+
   const { profile, question } = body.data;
   let prompt: string;
   try {
     // Facts are rebuilt on the server, so the client cannot feed fake numbers.
-    const report = await getAirReport(normaliseCity(profile.city));
-    prompt = buildAskPrompt(buildFacts(profile, report, buildInsights(profile, report)), question);
+    const facts = await planService.factsFor(profile, profile.city);
+    prompt = buildAskPrompt(facts.text, question);
   } catch (error) {
-    if (error instanceof AirDataError) return jsonError(error.kind === "not_found" ? 404 : 502, error.message);
-    throw error;
+    return errorResponse(error, "Something went wrong answering your question.");
   }
 
   const encoder = new TextEncoder();

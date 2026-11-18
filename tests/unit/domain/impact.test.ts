@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  COMMUNITY_SCALES,
+  communityImpact,
   commuteSwaps,
   exerciseShift,
+  HEATING_HAZARD,
   indoorEstimate,
   maskEffect,
   weeklyCommuteKm,
@@ -123,5 +126,42 @@ describe("exerciseShift", () => {
 describe("maskEffect", () => {
   it("cuts the dose by 80%", () => {
     expect(maskEffect(100)).toEqual({ doseNoMask: 100, doseWithN95: 20 });
+  });
+});
+
+describe("indoorEstimate with a smoker", () => {
+  it("adds 40 µg/m³ before the purifier cuts it", () => {
+    const clean = indoorEstimate(100);
+    const smoky = indoorEstimate(100, true);
+    expect(clean.indoorPm25).toBe(70);
+    expect(smoky.indoorPm25).toBe(110);
+    expect(smoky.indoorWithPurifier).toBe(44);
+  });
+});
+
+describe("communityImpact", () => {
+  const swap = { to: "metro" as const, co2KgSavedPerWeek: 10, pm25GramsSavedPerWeek: 0.5, co2KgSavedPerYear: 460 };
+
+  it("scales one household's yearly saving to many households", () => {
+    expect(communityImpact(swap, 40)).toEqual({ households: 40, co2TonnesPerYear: 18.4, pm25KgPerYear: 0.92 });
+    expect(communityImpact(swap, 1000).co2TonnesPerYear).toBe(460);
+  });
+
+  it("matches the single-home figure for one home", () => {
+    expect(communityImpact(swap, 1).co2TonnesPerYear).toBe(0.5);
+  });
+});
+
+describe("COMMUNITY_SCALES", () => {
+  it("offers a home, a building of 40 and a ward of 1,000", () => {
+    expect(COMMUNITY_SCALES.map((s) => s.households)).toEqual([1, 40, 1000]);
+  });
+});
+
+describe("HEATING_HAZARD", () => {
+  it("flags coal or wood as carbon monoxide and gas heaters as nitrogen dioxide", () => {
+    expect(HEATING_HAZARD.coal_or_wood).toBe("carbon_monoxide");
+    expect(HEATING_HAZARD.gas_heater).toBe("nitrogen_dioxide");
+    expect(HEATING_HAZARD.electric_heater).toBe("none");
   });
 });

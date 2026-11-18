@@ -2,7 +2,7 @@ import { buildFallbackPlan } from "@/lib/domain/fallback-plan";
 import { buildInsights } from "@/lib/domain/insights";
 import { makeProfile } from "./profiles";
 import { delhiReport } from "./delhi";
-import type { PlanResult } from "@/lib/server/plan-service";
+import type { PlanResult } from "@/lib/domain/result";
 
 /** A full /api/plan response for the default Delhi household. */
 export function planResultFixture(): PlanResult {

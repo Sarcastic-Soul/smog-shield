@@ -1,3 +1,4 @@
+import { roundTo } from "../math";
 import type { CommuteMode, CookingFuel, HeatingType, Profile } from "./profile";
 
 /**
@@ -57,7 +58,9 @@ export const COOKING_PM25_ADDED: Record<CookingFuel, number> = {
   induction: 5,
 };
 
-export const HEATING_HAZARD: Record<HeatingType, "none" | "carbon_monoxide" | "nitrogen_dioxide"> = {
+export type HeatingHazard = "none" | "carbon_monoxide" | "nitrogen_dioxide";
+
+export const HEATING_HAZARD: Record<HeatingType, HeatingHazard> = {
   none: "none",
   electric_heater: "none",
   heat_pump: "none",
@@ -65,10 +68,17 @@ export const HEATING_HAZARD: Record<HeatingType, "none" | "carbon_monoxide" | "n
   coal_or_wood: "carbon_monoxide",
 };
 
-const round = (n: number, digits = 1) => {
-  const f = 10 ** digits;
-  return Math.round(n * f) / f;
-};
+/** Weeks a year someone actually commutes (holidays and leave removed). */
+export const WORKING_WEEKS_PER_YEAR = 46;
+
+/** Light walking roughly doubles the resting breathing rate. */
+export const WALKING_BREATHING_FACTOR = 2;
+
+/** Extra indoor PM2.5 in homes where someone smokes inside, µg/m³ (WHO/US EPA ranges). */
+export const SMOKER_INDOOR_PM25 = 40;
+
+/** Cooking that adds this much PM2.5 or more is flagged as polluting. */
+export const POLLUTING_COOKING_PM25 = 100;
 
 export function weeklyCommuteKm(profile: Profile): number {
   const { mode, distanceKm, daysPerWeek } = profile.commute;
@@ -79,7 +89,7 @@ export interface CommuteSwap {
   to: CommuteMode;
   co2KgSavedPerWeek: number;
   pm25GramsSavedPerWeek: number;
-  /** Yearly CO2 saved, kg. 46 working weeks a year. */
+  /** Yearly CO2 saved, kg, over WORKING_WEEKS_PER_YEAR. */
   co2KgSavedPerYear: number;
 }
 
@@ -102,9 +112,9 @@ export function commuteSwaps(profile: Profile): CommuteSwap[] {
       const co2 = (CO2_KG_PER_KM[from] - CO2_KG_PER_KM[to]) * km;
       return {
         to,
-        co2KgSavedPerWeek: round(co2),
-        pm25GramsSavedPerWeek: round(Math.max(0, PM25_G_PER_KM[from] - PM25_G_PER_KM[to]) * km, 2),
-        co2KgSavedPerYear: Math.round(co2 * 46),
+        co2KgSavedPerWeek: roundTo(co2),
+        pm25GramsSavedPerWeek: roundTo(Math.max(0, PM25_G_PER_KM[from] - PM25_G_PER_KM[to]) * km, 2),
+        co2KgSavedPerYear: Math.round(co2 * WORKING_WEEKS_PER_YEAR),
       };
     })
     .sort((a, b) => b.co2KgSavedPerWeek - a.co2KgSavedPerWeek);
@@ -118,13 +128,14 @@ export interface IndoorEstimate {
   purifierCutPercent: number;
 }
 
-export function indoorEstimate(outdoorPm25: number): IndoorEstimate {
-  const indoor = outdoorPm25 * INDOOR_INFILTRATION;
+/** Indoor PM2.5 with windows shut, plus any smoking indoors. */
+export function indoorEstimate(outdoorPm25: number, smokerAtHome = false): IndoorEstimate {
+  const indoor = outdoorPm25 * INDOOR_INFILTRATION + (smokerAtHome ? SMOKER_INDOOR_PM25 : 0);
   const withPurifier = indoor * (1 - PURIFIER_REDUCTION);
   return {
-    outdoorPm25: round(outdoorPm25),
-    indoorPm25: round(indoor),
-    indoorWithPurifier: round(withPurifier),
+    outdoorPm25: roundTo(outdoorPm25),
+    indoorPm25: roundTo(indoor),
+    indoorWithPurifier: roundTo(withPurifier),
     purifierCutPercent: Math.round(PURIFIER_REDUCTION * 100),
   };
 }
@@ -163,6 +174,28 @@ export interface MaskEffect {
 }
 
 export function maskEffect(pm25: number): MaskEffect {
-  const dose = pm25 * BREATHING_M3_PER_HOUR.resting * 2; // light walking ≈ 2× resting
+  const dose = pm25 * BREATHING_M3_PER_HOUR.resting * WALKING_BREATHING_FACTOR;
   return { doseNoMask: Math.round(dose), doseWithN95: Math.round(dose * (1 - N95_REAL_WORLD_REDUCTION)) };
+}
+
+/** Typical sizes used to show what a change means beyond one home. */
+export const COMMUNITY_SCALES = [
+  { id: "home", label: "Just our home", households: 1 },
+  { id: "building", label: "Our building or lane (40 homes)", households: 40 },
+  { id: "ward", label: "Our ward (1,000 homes)", households: 1000 },
+] as const;
+
+export interface CommunityImpact {
+  households: number;
+  co2TonnesPerYear: number;
+  pm25KgPerYear: number;
+}
+
+/** Scales one household's swap to many households making the same change. */
+export function communityImpact(swap: CommuteSwap, households: number): CommunityImpact {
+  return {
+    households,
+    co2TonnesPerYear: roundTo((swap.co2KgSavedPerYear * households) / 1000),
+    pm25KgPerYear: roundTo((swap.pm25GramsSavedPerWeek * WORKING_WEEKS_PER_YEAR * households) / 1000, 2),
+  };
 }

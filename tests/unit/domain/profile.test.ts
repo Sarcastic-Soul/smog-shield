@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PROFILE, profileSchema } from "@/lib/domain/profile";
+import {
+  DEFAULT_PROFILE,
+  LANGUAGE_LABELS,
+  LANGUAGES,
+  profileSchema,
+  RTL_LANGUAGES,
+  type Profile,
+} from "@/lib/domain/profile";
 import { makeProfile } from "../../fixtures/profiles";
 
 const parse = (patch: Record<string, unknown>) => profileSchema.safeParse({ ...makeProfile(), ...patch });
@@ -72,5 +79,42 @@ describe("profileSchema", () => {
 
   it("rejects an unknown budget", () => {
     expect(parse({ budget: "unlimited" }).success).toBe(false);
+  });
+});
+
+describe("language and new home fields", () => {
+  it("accepts each supported language and rejects others", () => {
+    for (const language of LANGUAGES) expect(parse({ language }).success).toBe(true);
+    expect(parse({ language: "fr" }).success).toBe(false);
+  });
+
+  it("requires a language", () => {
+    const rest: Partial<Profile> = makeProfile();
+    delete rest.language;
+    expect(profileSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("has a native and an English label for every language", () => {
+    expect(Object.keys(LANGUAGE_LABELS)).toEqual([...LANGUAGES]);
+    expect(LANGUAGE_LABELS.hi).toEqual({ native: "हिन्दी", english: "Hindi" });
+  });
+
+  it("marks only Urdu as right to left", () => {
+    expect([...RTL_LANGUAGES]).toEqual(["ur"]);
+  });
+
+  it("requires boolean smoker and waste-burning flags", () => {
+    const home = makeProfile().home;
+    expect(parse({ home: { ...home, smokerAtHome: true, wasteBurningNearby: true } }).success).toBe(true);
+    expect(parse({ home: { ...home, smokerAtHome: "yes" } }).success).toBe(false);
+    const noSmoker: Partial<Profile["home"]> = { ...home };
+    delete noSmoker.smokerAtHome;
+    expect(parse({ home: noSmoker }).success).toBe(false);
+  });
+
+  it("defaults to English with no smoker and no burning", () => {
+    expect(DEFAULT_PROFILE.language).toBe("en");
+    expect(DEFAULT_PROFILE.home.smokerAtHome).toBe(false);
+    expect(DEFAULT_PROFILE.home.wasteBurningNearby).toBe(false);
   });
 });

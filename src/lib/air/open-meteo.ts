@@ -1,5 +1,7 @@
 import { z } from "zod";
-import type { AirReport, HourlyAir, Place } from "./types";
+import { mean, roundTo } from "../math";
+import { pm25ToAqi } from "./aqi";
+import type { AirReport, DailyOutlook, HourlyAir, Place } from "./types";
 
 /**
  * Thin client for the free Open-Meteo geocoding and air-quality APIs.
@@ -10,6 +12,9 @@ import type { AirReport, HourlyAir, Place } from "./types";
 const GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
 const TIMEOUT_MS = 6000;
+/** Today plus three more days for the outlook (CAMS forecasts up to five). */
+const FORECAST_DAYS = 4;
+const OUTLOOK_DAYS = 3;
 
 export class AirDataError extends Error {
   constructor(
@@ -87,7 +92,9 @@ export async function geocodeCity(city: string, fetcher: FetchLike = fetch): Pro
 
   const parsed = geocodeSchema.safeParse(await getJson(url, fetcher));
   const hit = parsed.success ? parsed.data.results?.[0] : undefined;
-  if (!hit) throw new AirDataError(`We could not find "${city}"`, "not_found");
+  if (!hit) {
+    throw new AirDataError(`We could not find "${city}". Try the English spelling, for example "Delhi".`, "not_found");
+  }
 
   return {
     name: hit.name,
@@ -99,7 +106,25 @@ export async function geocodeCity(city: string, fetcher: FetchLike = fetch): Pro
   };
 }
 
-const round1 = (n: number | null) => Math.round((n ?? 0) * 10) / 10;
+const round1 = (n: number | null) => roundTo(n ?? 0);
+
+/** Daily mean PM2.5 for each day after `today`, skipping missing hours. */
+function buildOutlook(times: string[], pm25: (number | null)[], today: string): DailyOutlook[] {
+  const byDay = new Map<string, number[]>();
+  times.forEach((time, i) => {
+    const date = time.slice(0, 10);
+    const value = pm25[i];
+    if (date <= today || value === null) return;
+    byDay.set(date, [...(byDay.get(date) ?? []), value]);
+  });
+  return [...byDay.entries()]
+    .filter(([, values]) => values.length >= 12) // ignore partial days at the end of the forecast
+    .slice(0, OUTLOOK_DAYS)
+    .map(([date, values]) => {
+      const avgPm25 = roundTo(mean(values));
+      return { date, avgPm25, aqi: pm25ToAqi(avgPm25) };
+    });
+}
 
 export async function fetchAirReport(place: Place, fetcher: FetchLike = fetch): Promise<AirReport> {
   const url = new URL(AIR_URL);
@@ -107,7 +132,7 @@ export async function fetchAirReport(place: Place, fetcher: FetchLike = fetch): 
   url.searchParams.set("longitude", place.longitude.toFixed(3));
   url.searchParams.set("current", "us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone,carbon_monoxide");
   url.searchParams.set("hourly", "us_aqi,pm2_5");
-  url.searchParams.set("forecast_days", "2");
+  url.searchParams.set("forecast_days", String(FORECAST_DAYS));
   url.searchParams.set("timezone", "auto");
 
   const parsed = airSchema.safeParse(await getJson(url, fetcher));
@@ -135,6 +160,7 @@ export async function fetchAirReport(place: Place, fetcher: FetchLike = fetch): 
       co: round1(current.carbon_monoxide),
     },
     next24h,
+    outlook: buildOutlook(hourly.time, hourly.pm2_5, current.time.slice(0, 10)),
     source: "open-meteo",
   };
 }

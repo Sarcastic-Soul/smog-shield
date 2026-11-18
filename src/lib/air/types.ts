@@ -26,11 +26,22 @@ export interface HourlyAir {
   pm25: number;
 }
 
+/** Daily mean PM2.5 for a coming day, to spot multi-day smog episodes. */
+export interface DailyOutlook {
+  /** Local date, `YYYY-MM-DD`. */
+  date: string;
+  avgPm25: number;
+  /** AQI of the daily mean PM2.5. */
+  aqi: number;
+}
+
 export interface AirReport {
   place: Place;
   now: AirNow;
   /** The next 24 hours, starting at the current hour. */
   next24h: HourlyAir[];
+  /** The next three calendar days after today. */
+  outlook: DailyOutlook[];
   source: "open-meteo";
 }
 

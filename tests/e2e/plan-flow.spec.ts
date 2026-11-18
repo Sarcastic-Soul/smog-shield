@@ -35,11 +35,76 @@ test.describe("plan flow", () => {
     await expect(forecast.locator("table caption")).toHaveText(/^Hourly .*forecast$/);
 
     const plan = page.getByRole("region", { name: result.plan.headline });
-    await expect(plan.getByRole("heading", { name: "Today's routine" })).toBeVisible();
+    await expect(plan.getByRole("heading", { name: "Your next 24 hours" })).toBeVisible();
     await expect(plan.getByText("07:00", { exact: true })).toBeVisible();
     await expect(plan.getByRole("heading", { name: "Cleaner air indoors" })).toBeVisible();
     await expect(plan.getByRole("heading", { name: "Swaps that cut emissions" })).toBeVisible();
     await expect(plan.getByText(/Petrol car → Work from home/)).toBeVisible();
+  });
+
+  test("tags routine steps that fall tomorrow", async ({ page }) => {
+    await openWithResults(page);
+    const routine = page.getByRole("list", { name: "Your next 24 hours" });
+    const tomorrowSteps = result.plan.routine.filter((s) => s.day === "tomorrow");
+    expect(tomorrowSteps.length).toBeGreaterThan(0);
+    await expect(routine.getByText("tomorrow", { exact: true })).toHaveCount(tomorrowSteps.length);
+    await expect(routine.getByRole("listitem").first()).not.toContainText("tomorrow");
+  });
+
+  test("shows the community section with actions and impact", async ({ page }) => {
+    await openWithResults(page);
+    await expect(page.getByRole("heading", { name: "With your neighbours" })).toBeVisible();
+    const list = page.getByRole("list", { name: "With your neighbours" });
+    await expect(list.getByRole("listitem")).toHaveCount(result.plan.communityActions.length);
+    await expect(list).toContainText(result.plan.communityActions[0].who);
+    await expect(list).toContainText(result.plan.communityActions[0].impact);
+  });
+
+  test("shows the three-day outlook under the forecast", async ({ page }) => {
+    await openWithResults(page);
+    const forecast = page.getByRole("region", { name: "Next 24 hours" });
+    await expect(forecast.getByRole("heading", { name: "Next few days" })).toBeVisible();
+    await expect(forecast.getByText(/Smog is building/)).toBeVisible();
+    await expect(forecast.getByRole("listitem")).toHaveCount(3);
+  });
+
+  test("scales the commute saving to a building and a ward", async ({ page }) => {
+    await openWithResults(page);
+    const simulator = page.getByRole("region", { name: "Try a change, see the effect" });
+    const scale = simulator.getByLabel("How many homes make this change?");
+    await scale.selectOption("building");
+    await expect(simulator.getByRole("status").first()).toContainText("CO₂ saved a year by 40 homes");
+    await scale.selectOption("ward");
+    await expect(simulator.getByRole("status").first()).toContainText("1,000 homes");
+  });
+
+  test("changing the plan language sends it and marks Urdu text right to left", async ({ page }) => {
+    const bodies = await mockPlan(page);
+    await page.goto("/");
+    const language = page.getByLabel("Plan language");
+    await expect(language).toHaveValue("en");
+    await language.selectOption("ur");
+    await expect(language).toHaveValue("ur");
+    await page.getByRole("button", { name: /Build today's plan/ }).click();
+    await page.getByRole("heading", { name: /Next 24 hours/ }).waitFor();
+
+    expect((bodies[0] as { profile: { language: string } }).profile.language).toBe("ur");
+    const headline = page.getByRole("heading", { name: result.plan.headline });
+    await expect(headline).toHaveAttribute("lang", "ur");
+    await expect(headline).toHaveAttribute("dir", "rtl");
+  });
+
+  test("sends the smoker and burning choices with the profile", async ({ page }) => {
+    const bodies = await mockPlan(page);
+    await page.goto("/");
+    await page.getByRole("checkbox", { name: "Someone smokes indoors" }).check();
+    await page.getByRole("checkbox", { name: "Waste or crop burning near us" }).check();
+    await page.getByRole("button", { name: /Build today's plan/ }).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect((bodies[0] as { profile: { home: object } }).profile.home).toMatchObject({
+      smokerAtHome: true,
+      wasteBurningNearby: true,
+    });
   });
 
   test("moves focus to the results after submitting", async ({ page }) => {
@@ -108,17 +173,27 @@ test.describe("plan flow", () => {
     await page.goto("/");
     await page.getByLabel("Where do you live?").fill("<script>");
     await page.getByRole("button", { name: /Build today's plan/ }).click();
-    await expect(page.locator("#results").getByRole("alert")).toContainText("city");
+    await expect(page.locator("#results").getByRole("alert")).toContainText("Use letters only");
     expect(bodies).toHaveLength(0);
   });
 
   test("remembers the household between visits", async ({ page }) => {
     await mockPlan(page);
     await page.goto("/");
+    await page.getByLabel("Plan language").selectOption("hi");
     await page.getByLabel("Where do you live?").fill("Pune");
     await page.getByRole("button", { name: /Build today's plan/ }).click();
     await page.getByRole("heading", { name: /Next 24 hours/ }).waitFor();
     await page.reload();
     await expect(page.getByLabel("Where do you live?")).toHaveValue("Pune");
+    await expect(page.getByLabel("Plan language")).toHaveValue("hi");
+  });
+
+  test("sends one request when the build button is double-clicked", async ({ page }) => {
+    const bodies = await mockPlan(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: /Build today's plan/ }).dblclick();
+    await page.getByRole("heading", { name: /Next 24 hours/ }).waitFor();
+    expect(bodies).toHaveLength(1);
   });
 });

@@ -16,13 +16,16 @@ export const planSchema = z.object({
           .string()
           .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
           .describe("24-hour local time, HH:mm"),
+        day: z
+          .enum(["today", "tomorrow"])
+          .describe("today if the time is still ahead of local time now, else tomorrow"),
         activity: text(140),
         why: text(240).describe("The reason, tied to the forecast or a household member"),
       }),
     )
     .min(3)
     .max(8)
-    .describe("Today's low-exposure, low-emission routine in time order"),
+    .describe("Low-exposure, low-emission routine for the next 24 hours, starting from now, in time order"),
   indoorHacks: z
     .array(z.object({ title: text(80), action: text(240), impact: text(200) }))
     .min(2)
@@ -33,6 +36,11 @@ export const planSchema = z.object({
     .min(1)
     .max(5)
     .describe("Sustainable swaps that cut emissions; impact must quote the given numbers"),
+  communityActions: z
+    .array(z.object({ who: text(60), action: text(240), impact: text(200) }))
+    .min(1)
+    .max(4)
+    .describe("Actions with neighbours, the building/RWA, school or workplace; impact must quote the given numbers"),
   groupAdvice: z
     .array(z.object({ group: text(60), advice: text(240) }))
     .max(6)

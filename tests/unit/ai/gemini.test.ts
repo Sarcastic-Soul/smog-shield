@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { generatePlan, isRetryable, resetBreaker, streamAnswer } from "@/lib/ai/gemini";
 import { planResultFixture } from "../../fixtures/results";
 
 const samplePlan = planResultFixture().plan;
@@ -89,5 +90,159 @@ describe("gemini client", () => {
     const parts: string[] = [];
     for await (const part of streamAnswer("q")) parts.push(part);
     expect(parts.join("")).toBe("Stay inside.");
+  });
+});
+
+describe("model chain and circuit breaker", () => {
+  beforeEach(() => {
+    resetBreaker();
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_MODEL", "");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    generateContent.mockReset();
+    generateContentStream.mockReset();
+  });
+
+  const modelsCalled = (mock: typeof generateContent) => mock.mock.calls.map((c) => c[0].model);
+
+  it("tries the three default models in order while they are overloaded", async () => {
+    generateContent.mockRejectedValue(overloaded);
+    await expect(generatePlan("p")).resolves.toBeNull();
+    expect(modelsCalled(generateContent)).toEqual([
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite",
+      "gemini-3-flash-preview",
+    ]);
+  });
+
+  it("stops at the first model that works", async () => {
+    generateContent
+      .mockRejectedValueOnce(overloaded)
+      .mockRejectedValueOnce(Object.assign(new Error("quota"), { status: 429 }))
+      .mockResolvedValueOnce({ text: JSON.stringify(samplePlan) });
+    await expect(generatePlan("p")).resolves.toEqual(samplePlan);
+    expect(generateContent).toHaveBeenCalledTimes(3);
+  });
+
+  it("puts GEMINI_MODEL first and does not repeat it", async () => {
+    vi.stubEnv("GEMINI_MODEL", "gemini-3-flash-preview");
+    generateContent.mockRejectedValue(overloaded);
+    await generatePlan("p");
+    expect(modelsCalled(generateContent)).toEqual([
+      "gemini-3-flash-preview",
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite",
+    ]);
+  });
+
+  it("gives every attempt its own abort signal", async () => {
+    generateContent.mockResolvedValue({ text: JSON.stringify(samplePlan) });
+    await generatePlan("p");
+    expect(generateContent.mock.calls[0][0].config.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("opens the breaker after 3 failed plans and skips the API until reset", async () => {
+    generateContent.mockResolvedValue({ text: "not json" });
+    for (let i = 0; i < 3; i++) await expect(generatePlan("p")).resolves.toBeNull();
+    expect(generateContent).toHaveBeenCalledTimes(3);
+
+    generateContent.mockResolvedValue({ text: JSON.stringify(samplePlan) });
+    await expect(generatePlan("p")).resolves.toBeNull();
+    expect(generateContent).toHaveBeenCalledTimes(3);
+
+    resetBreaker();
+    await expect(generatePlan("p")).resolves.toEqual(samplePlan);
+    expect(generateContent).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not open the breaker after only 2 failures", async () => {
+    generateContent.mockResolvedValue({ text: "not json" });
+    await generatePlan("p");
+    await generatePlan("p");
+    generateContent.mockResolvedValue({ text: JSON.stringify(samplePlan) });
+    await expect(generatePlan("p")).resolves.toEqual(samplePlan);
+  });
+
+  it("counts a success as a reset of the failure streak", async () => {
+    generateContent.mockResolvedValue({ text: "not json" });
+    await generatePlan("p");
+    await generatePlan("p");
+    generateContent.mockResolvedValue({ text: JSON.stringify(samplePlan) });
+    await generatePlan("p");
+    generateContent.mockResolvedValue({ text: "not json" });
+    await generatePlan("p");
+    await generatePlan("p");
+    generateContent.mockResolvedValue({ text: JSON.stringify(samplePlan) });
+    await expect(generatePlan("p")).resolves.toEqual(samplePlan);
+  });
+
+  it("reopens after the cooldown", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      generateContent.mockResolvedValue({ text: "not json" });
+      for (let i = 0; i < 3; i++) await generatePlan("p");
+      generateContent.mockResolvedValue({ text: JSON.stringify(samplePlan) });
+      await expect(generatePlan("p")).resolves.toBeNull();
+      vi.advanceTimersByTime(61_000);
+      await expect(generatePlan("p")).resolves.toEqual(samplePlan);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a stream that fails to start on the next model", async () => {
+    generateContentStream.mockRejectedValueOnce(overloaded).mockResolvedValueOnce(
+      (async function* () {
+        yield { text: "ok" };
+      })(),
+    );
+    const parts: string[] = [];
+    for await (const part of streamAnswer("q")) parts.push(part);
+    expect(parts).toEqual(["ok"]);
+    expect(modelsCalled(generateContentStream)).toEqual(["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+  });
+
+  it("throws when the stream cannot start on a non-retryable error", async () => {
+    generateContentStream.mockRejectedValue(Object.assign(new Error("bad"), { status: 400 }));
+    await expect(streamAnswer("q").next()).rejects.toThrow("bad");
+    expect(generateContentStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when no key is set", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "");
+    await expect(streamAnswer("q").next()).rejects.toThrow("AI is not configured");
+  });
+
+  it("stops early when the client signal is already aborted", async () => {
+    generateContentStream.mockResolvedValue((async function* () {})());
+    const controller = new AbortController();
+    controller.abort();
+    await expect(streamAnswer("q", controller.signal).next()).rejects.toThrow();
+    expect(generateContentStream).not.toHaveBeenCalled();
+  });
+});
+
+describe("isRetryable", () => {
+  it("retries overload and quota statuses", () => {
+    expect(isRetryable({ status: 503 })).toBe(true);
+    expect(isRetryable({ status: 429 })).toBe(true);
+  });
+
+  it("retries known error text such as timeouts and aborts", () => {
+    expect(isRetryable(new Error("UNAVAILABLE"))).toBe(true);
+    expect(isRetryable(new Error("RESOURCE_EXHAUSTED"))).toBe(true);
+    expect(isRetryable(new Error("This operation was aborted"))).toBe(true);
+    expect(isRetryable(new Error("request timed out"))).toBe(true);
+    expect(isRetryable(new Error("Timeout"))).toBe(true);
+  });
+
+  it("does not retry client errors or empty values", () => {
+    expect(isRetryable({ status: 400 })).toBe(false);
+    expect(isRetryable(new Error("bad request"))).toBe(false);
+    expect(isRetryable(null)).toBe(false);
   });
 });

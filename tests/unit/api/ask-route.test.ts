@@ -103,4 +103,47 @@ describe("POST /api/ask", () => {
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("Retry-After")).not.toBeNull();
   });
+
+  it("returns 403 for a cross-site request without reaching the AI", async () => {
+    const request = new Request("http://test.local/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+      body: JSON.stringify(goodBody()),
+    });
+    expect((await POST(request)).status).toBe(403);
+    expect(mockedStream).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 when content-length says the body is too big", async () => {
+    const request = new Request("http://test.local/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": "50000" },
+      body: "{}",
+    });
+    expect((await POST(request)).status).toBe(413);
+  });
+
+  it("rejects a bad body before using up a rate-limit slot", async () => {
+    const ip = freshIp();
+    for (let i = 0; i < 25; i++) expect((await call({ ...goodBody(), question: "hi" }, ip)).status).toBe(422);
+    expect((await call(goodBody(), ip)).status).toBe(200);
+  });
+
+  it("rebuilds the facts from the profile city, not from anything the client sends", async () => {
+    await (await call(goodBody())).text();
+    expect(mockedAir).toHaveBeenCalledWith("New Delhi");
+  });
+
+  it("returns 500 with a generic message for unexpected errors", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedAir.mockRejectedValue(new Error("kaboom"));
+    const response = await call(goodBody());
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).not.toContain("kaboom");
+  });
+
+  it("exports a max duration for the route", async () => {
+    const route = await import("@/app/api/ask/route");
+    expect(route.maxDuration).toBeGreaterThanOrEqual(25);
+  });
 });

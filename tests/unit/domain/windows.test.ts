@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { pm25ToAqi } from "@/lib/air/aqi";
 import type { HourlyAir } from "@/lib/air/types";
-import { clockLabel, findWindows } from "@/lib/domain/windows";
+import { clockLabel, dayOf, DAY_END_HOUR, DAY_START_HOUR, findWindows } from "@/lib/domain/windows";
 import { hourlyPoints } from "../../fixtures/delhi";
 
 const hour = (date: string, h: number, pm25: number): HourlyAir => ({
@@ -54,7 +55,12 @@ describe("findWindows", () => {
   });
 
   it("never builds a window across two days", () => {
-    const hours = [hour("2026-01-15", 23, 1), hour("2026-01-16", 6, 1), hour("2026-01-16", 7, 50), hour("2026-01-16", 8, 60)];
+    const hours = [
+      hour("2026-01-15", 23, 1),
+      hour("2026-01-16", 6, 1),
+      hour("2026-01-16", 7, 50),
+      hour("2026-01-16", 8, 60),
+    ];
     const result = findWindows(hours)!;
     expect(result.best.start).toBe("2026-01-16T06:00");
   });
@@ -83,5 +89,49 @@ describe("findWindows", () => {
 describe("clockLabel", () => {
   it("returns HH:mm from a local time", () => {
     expect(clockLabel("2026-01-15T07:00")).toBe("07:00");
+  });
+});
+
+describe("dayOf", () => {
+  it("says today for the same date and tomorrow for a later date", () => {
+    expect(dayOf("2026-01-15T19:00", "2026-01-15T10:00")).toBe("today");
+    expect(dayOf("2026-01-16T07:00", "2026-01-15T10:00")).toBe("tomorrow");
+  });
+
+  it("treats earlier dates as today", () => {
+    expect(dayOf("2026-01-14T07:00", "2026-01-15T10:00")).toBe("today");
+  });
+});
+
+describe("daytime hours", () => {
+  it("run from 06:00 to 21:00", () => {
+    expect(DAY_START_HOUR).toBe(6);
+    expect(DAY_END_HOUR).toBe(21);
+  });
+});
+
+describe("findWindows across days", () => {
+  it("can pick a window tomorrow when that is the cleanest", () => {
+    const hours = [
+      ...[18, 19, 20].map((h) => hour("2026-01-15", h, 100)),
+      ...[7, 8, 9].map((h) => hour("2026-01-16", h, 10)),
+    ];
+    const result = findWindows(hours)!;
+    expect(result.best.start).toBe("2026-01-16T07:00");
+    expect(result.best.end).toBe("2026-01-16T09:00");
+  });
+
+  it("reports AQI from the window's average PM2.5", () => {
+    const hours = [10, 11].map((h) => hour("2026-01-15", h, 40));
+    expect(findWindows(hours)!.best.avgAqi).toBe(pm25ToAqi(40));
+  });
+
+  it("handles a long forecast in one pass", () => {
+    const hours = Array.from({ length: 96 }, (_, i) =>
+      hour(`2026-01-${15 + Math.floor(i / 24)}`, i % 24, 50 + (i % 24)),
+    );
+    const result = findWindows(hours)!;
+    expect(result.best.start).toBe("2026-01-15T06:00");
+    expect(result.worst.start).toBe("2026-01-15T19:00");
   });
 });

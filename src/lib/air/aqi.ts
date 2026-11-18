@@ -1,14 +1,10 @@
+import { roundTo } from "../math";
+
 /**
  * US EPA AQI bands. Open-Meteo returns the US AQI, so we use the same scale
  * everywhere to keep the numbers comparable.
  */
-export type AqiBandId =
-  | "good"
-  | "moderate"
-  | "sensitive"
-  | "unhealthy"
-  | "very_unhealthy"
-  | "hazardous";
+export type AqiBandId = "good" | "moderate" | "sensitive" | "unhealthy" | "very_unhealthy" | "hazardous";
 
 export interface AqiBand {
   id: AqiBandId;
@@ -43,11 +39,11 @@ export const WHO_PM25_24H = 15;
 export const PM25_PER_CIGARETTE = 22;
 
 export function cigarettesPerDay(pm25: number): number {
-  return Math.max(0, Math.round((pm25 / PM25_PER_CIGARETTE) * 10) / 10);
+  return Math.max(0, roundTo(pm25 / PM25_PER_CIGARETTE));
 }
 
 export function timesWhoLimit(pm25: number): number {
-  return Math.max(0, Math.round((pm25 / WHO_PM25_24H) * 10) / 10);
+  return Math.max(0, roundTo(pm25 / WHO_PM25_24H));
 }
 
 /** US EPA PM2.5 breakpoints (2024 revision): [concLow, concHigh, aqiLow, aqiHigh]. */

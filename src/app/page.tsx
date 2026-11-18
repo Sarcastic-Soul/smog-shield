@@ -1,6 +1,9 @@
+import { connection } from "next/server";
 import { SmogShieldApp } from "@/components/SmogShieldApp";
 
-export default function Home() {
+export default async function Home() {
+  // Render per request so each page gets its own CSP nonce (see src/proxy.ts).
+  await connection();
   return (
     <>
       <header className="mx-auto max-w-[1400px] px-4 pt-6 sm:px-8">

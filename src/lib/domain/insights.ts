@@ -1,29 +1,37 @@
-import { bandFor, cigarettesPerDay, timesWhoLimit } from "../air/aqi";
-import type { AirReport } from "../air/types";
+import { bandFor, cigarettesPerDay, timesWhoLimit, type AqiBandId } from "../air/aqi";
+import type { AirReport, DailyOutlook } from "../air/types";
+import { roundTo } from "../math";
 import {
+  CO2_KG_PER_KM,
+  COMMUNITY_SCALES,
+  communityImpact,
   commuteSwaps,
   COOKING_PM25_ADDED,
   exerciseShift,
   HEATING_HAZARD,
   indoorEstimate,
   maskEffect,
+  POLLUTING_COOKING_PM25,
   weeklyCommuteKm,
-  CO2_KG_PER_KM,
+  type CommunityImpact,
   type CommuteSwap,
   type ExerciseShift,
+  type HeatingHazard,
   type IndoorEstimate,
   type MaskEffect,
 } from "./impact";
-import type { Profile } from "./profile";
+import type { CookingFuel, Profile } from "./profile";
 import { assessRisk, type HouseholdRisk } from "./risk";
 import { findWindows, type AirWindow } from "./windows";
+
+export type Trend = "worsening" | "steady" | "improving";
 
 /**
  * Every number the assistant shows comes from here. The language model only
  * explains these facts; it never invents its own figures.
  */
 export interface Insights {
-  band: { id: string; label: string };
+  band: { id: AqiBandId; label: string; colorVar: string };
   risk: HouseholdRisk;
   cigarettesPerDay: number;
   timesWhoLimit: number;
@@ -36,9 +44,46 @@ export interface Insights {
     weeklyCo2Kg: number;
     swaps: CommuteSwap[];
   };
-  cooking: { fuel: Profile["home"]["cooking"]; addedPm25: number; isPolluting: boolean };
-  heatingHazard: (typeof HEATING_HAZARD)[keyof typeof HEATING_HAZARD];
+  /** The best commute swap scaled to a building of households, if any. */
+  community: CommunityImpact | null;
+  cooking: { fuel: CookingFuel; addedPm25: number; isPolluting: boolean };
+  heatingHazard: HeatingHazard;
+  outlook: { days: DailyOutlook[]; trend: Trend };
   safetyAlerts: string[];
+}
+
+/** A change of more than 15% in daily PM2.5 counts as a trend. */
+const TREND_THRESHOLD = 0.15;
+
+function trendOf(todayPm25: number, days: DailyOutlook[]): Trend {
+  if (days.length === 0 || todayPm25 <= 0) return "steady";
+  const change = (days[days.length - 1].avgPm25 - todayPm25) / todayPm25;
+  if (change > TREND_THRESHOLD) return "worsening";
+  if (change < -TREND_THRESHOLD) return "improving";
+  return "steady";
+}
+
+function safetyAlertsFor(profile: Profile, risk: HouseholdRisk, heatingHazard: HeatingHazard): string[] {
+  const alerts: string[] = [];
+  if (heatingHazard === "carbon_monoxide") {
+    alerts.push(
+      "Burning coal or wood indoors (an angithi, brazier or open fire) can cause carbon monoxide poisoning. Never sleep with it lit. While it burns, keep one window open a crack even on smoggy days: carbon monoxide is more dangerous than the smog.",
+    );
+  }
+  if (heatingHazard === "nitrogen_dioxide") {
+    alerts.push(
+      "Unflued gas heaters release nitrogen dioxide and carbon monoxide indoors. Run them only with ventilation and never overnight.",
+    );
+  }
+  if (profile.home.smokerAtHome && risk.hasSensitiveMembers) {
+    alerts.push("Smoking indoors adds about 40 µg/m³ of PM2.5 for everyone at home. Smoke outside, away from windows.");
+  }
+  if (risk.level === "severe" && risk.hasSensitiveMembers) {
+    alerts.push(
+      "Watch for breathlessness, chest tightness or wheezing. Keep inhalers and medicines in reach and call a doctor if symptoms get worse.",
+    );
+  }
+  return alerts;
 }
 
 export function buildInsights(profile: Profile, report: AirReport): Insights {
@@ -48,43 +93,29 @@ export function buildInsights(profile: Profile, report: AirReport): Insights {
   const windows = findWindows(report.next24h);
   const minutes = profile.home.outdoorExerciseMinutes;
   const weeklyKm = weeklyCommuteKm(profile);
+  const swaps = commuteSwaps(profile);
   const addedPm25 = COOKING_PM25_ADDED[profile.home.cooking];
   const heatingHazard = HEATING_HAZARD[profile.home.heating];
-
-  const safetyAlerts: string[] = [];
-  if (heatingHazard === "carbon_monoxide") {
-    safetyAlerts.push(
-      "Burning coal or wood in a closed room can cause carbon monoxide poisoning. Never sleep with an angithi lit; keep a window open a crack.",
-    );
-  }
-  if (heatingHazard === "nitrogen_dioxide") {
-    safetyAlerts.push(
-      "Unflued gas heaters release nitrogen dioxide and carbon monoxide indoors. Run them only with ventilation and never overnight.",
-    );
-  }
-  if (risk.level === "severe" && risk.hasSensitiveMembers) {
-    safetyAlerts.push(
-      "Watch for breathlessness, chest tightness or wheezing. Keep inhalers and medicines in reach and call a doctor if symptoms get worse.",
-    );
-  }
+  const building = COMMUNITY_SCALES.find((scale) => scale.id === "building")!;
 
   return {
-    band: { id: band.id, label: band.label },
+    band: { id: band.id, label: band.label, colorVar: band.colorVar },
     risk,
     cigarettesPerDay: cigarettesPerDay(now.pm25),
     timesWhoLimit: timesWhoLimit(now.pm25),
     windows,
-    exercise:
-      windows && minutes > 0 ? exerciseShift(minutes, windows.worst.avgPm25, windows.best.avgPm25) : null,
-    indoor: indoorEstimate(now.pm25),
+    exercise: windows && minutes > 0 ? exerciseShift(minutes, windows.worst.avgPm25, windows.best.avgPm25) : null,
+    indoor: indoorEstimate(now.pm25, profile.home.smokerAtHome),
     mask: maskEffect(now.pm25),
     commute: {
       weeklyKm,
-      weeklyCo2Kg: Math.round(CO2_KG_PER_KM[profile.commute.mode] * weeklyKm * 10) / 10,
-      swaps: commuteSwaps(profile),
+      weeklyCo2Kg: roundTo(CO2_KG_PER_KM[profile.commute.mode] * weeklyKm),
+      swaps,
     },
-    cooking: { fuel: profile.home.cooking, addedPm25, isPolluting: addedPm25 >= 100 },
+    community: swaps[0] ? communityImpact(swaps[0], building.households) : null,
+    cooking: { fuel: profile.home.cooking, addedPm25, isPolluting: addedPm25 >= POLLUTING_COOKING_PM25 },
     heatingHazard,
-    safetyAlerts,
+    outlook: { days: report.outlook, trend: trendOf(now.pm25, report.outlook) },
+    safetyAlerts: safetyAlertsFor(profile, risk, heatingHazard),
   };
 }
