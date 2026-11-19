@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { askQuestion, requestPlan } from "@/lib/client/api";
+import { askQuestion, lines, requestPlan } from "@/lib/client/api";
 import { planResultFixture } from "../../fixtures/results";
 import { makeProfile } from "../../fixtures/profiles";
 
@@ -19,6 +19,35 @@ const streamOf = (...parts: string[]) =>
     }),
     { headers: { "content-type": "text/plain" } },
   );
+
+async function collectLines(...chunks: string[]) {
+  const out: string[] = [];
+  for await (const l of lines(
+    (async function* () {
+      yield* chunks;
+    })(),
+  ))
+    out.push(l);
+  return out;
+}
+
+describe("lines", () => {
+  it("joins lines split across chunks", async () => {
+    expect(await collectLines('{"a"', ":1}\n{", '"b":2}\n')).toEqual(['{"a":1}', '{"b":2}']);
+  });
+
+  it("skips blank lines and trims", async () => {
+    expect(await collectLines("a\n\n  b  \n")).toEqual(["a", "b"]);
+  });
+
+  it("yields a last line that has no newline", async () => {
+    expect(await collectLines("a\nb")).toEqual(["a", "b"]);
+  });
+
+  it("yields nothing for an empty stream", async () => {
+    expect(await collectLines()).toEqual([]);
+  });
+});
 
 describe("requestPlan", () => {
   const line = (kind: "draft" | "final", result = planResultFixture()) => `${JSON.stringify({ kind, result })}\n`;
@@ -105,6 +134,13 @@ describe("requestPlan", () => {
   it("passes network failures through", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(requestPlan(makeProfile(), vi.fn())).rejects.toThrow("Failed to fetch");
+  });
+});
+
+describe("requestPlan with bad lines", () => {
+  it("rejects a line that is valid JSON but not a plan event", async () => {
+    fetchMock.mockResolvedValue(streamOf('{"hello":1}\n'));
+    await expect(requestPlan(makeProfile(), () => {})).rejects.toThrow("The plan response was not understood.");
   });
 });
 

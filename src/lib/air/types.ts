@@ -21,7 +21,8 @@ export interface AirNow {
   dominant: Pollutant;
 }
 
-export type Pollutant = "pm25" | "pm10" | "no2" | "ozone" | "co" | "so2";
+export const POLLUTANTS = ["pm25", "pm10", "no2", "ozone", "co", "so2"] as const;
+export type Pollutant = (typeof POLLUTANTS)[number];
 
 export const POLLUTANT_LABELS: Record<Pollutant, string> = {
   pm25: "PM2.5",

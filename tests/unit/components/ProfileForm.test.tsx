@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProfileForm } from "@/components/ProfileForm";
-import type { Profile } from "@/lib/domain/profile";
+import type { Profile } from "@/lib/domain/profile-options";
 import { makeProfile } from "../../fixtures/profiles";
 
 function setup(profile: Profile = makeProfile(), busy = false) {

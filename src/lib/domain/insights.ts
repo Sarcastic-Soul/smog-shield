@@ -6,6 +6,11 @@ import {
   BUILDING_SCALE,
   communityImpact,
   commuteSwaps,
+  weeklyCommuteKm,
+  type CommunityImpact,
+  type CommuteSwap,
+} from "./emissions";
+import {
   COOKING_PM25_ADDED,
   exerciseShift,
   HEATING_HAZARD,
@@ -13,14 +18,11 @@ import {
   maskEffect,
   POLLUTING_COOKING_PM25,
   SMOKER_INDOOR_PM25,
-  weeklyCommuteKm,
-  type CommunityImpact,
-  type CommuteSwap,
   type ExerciseShift,
   type HeatingHazard,
   type IndoorEstimate,
   type MaskEffect,
-} from "./impact";
+} from "./exposure";
 import type { CookingFuel, Profile } from "./profile-options";
 import { assessRisk, type HouseholdRisk } from "./risk";
 import { findWindows, type AirWindow } from "./windows";

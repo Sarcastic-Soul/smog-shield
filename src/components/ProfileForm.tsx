@@ -2,14 +2,7 @@
 
 import { ArrowRight, CircleNotch } from "@phosphor-icons/react";
 import { useId, type FormEvent } from "react";
-import {
-  BUDGETS,
-  LANGUAGE_LABELS,
-  LANGUAGES,
-  PROFILE_LIMITS,
-  type Language,
-  type Profile,
-} from "@/lib/domain/profile-options";
+import { BUDGETS, LANGUAGE_NATIVE_NAMES, LANGUAGES, PROFILE_LIMITS, type Profile } from "@/lib/domain/profile-options";
 import { Legend, SelectField } from "./form/fields";
 import { HouseholdFields } from "./form/HouseholdFields";
 import { CommuteFields, HomeFields } from "./form/LifestyleFields";
@@ -23,10 +16,6 @@ interface Props {
 
 const BUDGET_LABELS = { low: "Tight", medium: "Some room", high: "Comfortable" } as const;
 const NOTES_MAX = PROFILE_LIMITS.notesMax;
-
-const LANGUAGE_OPTION_LABELS = Object.fromEntries(
-  LANGUAGES.map((code) => [code, LANGUAGE_LABELS[code].native]),
-) as Record<Language, string>;
 
 export function ProfileForm({ profile, onChange, onSubmit, busy }: Props) {
   const cityId = useId();
@@ -100,7 +89,7 @@ export function ProfileForm({ profile, onChange, onSubmit, busy }: Props) {
         label="Plan language"
         value={profile.language}
         options={LANGUAGES}
-        labels={LANGUAGE_OPTION_LABELS}
+        labels={LANGUAGE_NATIVE_NAMES}
         onChange={(language) => set("language", language)}
       />
 

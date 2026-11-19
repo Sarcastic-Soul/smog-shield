@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ImpactSimulator } from "@/components/ImpactSimulator";
-import { communityImpact, treesEquivalent } from "@/lib/domain/impact";
+import { communityImpact, treesEquivalent } from "@/lib/domain/emissions";
 import { buildInsights } from "@/lib/domain/insights";
 import { delhiReport } from "../../fixtures/delhi";
 import { healthyProfile, makeProfile } from "../../fixtures/profiles";

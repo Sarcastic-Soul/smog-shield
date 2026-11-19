@@ -1,24 +1,32 @@
 "use client";
 
 import { useId, useState } from "react";
+import { clockOf } from "@/lib/air/types";
 import {
+  COMMUNITY_SCALE_IDS,
   COMMUNITY_SCALES,
   communityImpact,
-  cutPercent,
-  simulatedExerciseDose,
+  communityScaleLabel,
   treesEquivalent,
-} from "@/lib/domain/impact";
+  type CommunityScaleId,
+} from "@/lib/domain/emissions";
+import { cutPercent, simulatedExerciseDose } from "@/lib/domain/exposure";
 import type { Insights } from "@/lib/domain/insights";
 import { COMMUTE_LABELS, type Profile } from "@/lib/domain/profile-options";
-import { clockLabel } from "@/lib/domain/windows";
-import { CheckboxField } from "./form/fields";
+import { isHighRisk } from "@/lib/domain/risk";
+import { inSentence } from "@/lib/domain/rules/text";
+import { CheckboxField, CHOICE_INPUT_CLASS, SelectField } from "./form/fields";
+
+const SCALE_LABELS: Record<CommunityScaleId, string> = {
+  home: communityScaleLabel("home"),
+  building: communityScaleLabel("building"),
+  ward: communityScaleLabel("ward"),
+};
 
 interface Props {
   profile: Profile;
   insights: Insights;
 }
-
-type ScaleId = (typeof COMMUNITY_SCALES)[number]["id"];
 
 function Result({ value, children }: { value: string; children: React.ReactNode }) {
   return (
@@ -32,18 +40,17 @@ function Result({ value, children }: { value: string; children: React.ReactNode 
 function CommuteChoice({ profile, insights }: Props) {
   const { swaps, weeklyKm } = insights.commute;
   const [swapTo, setSwapTo] = useState(swaps[0]?.to ?? null);
-  const [scaleId, setScaleId] = useState<ScaleId>("home");
+  const [scaleId, setScaleId] = useState<CommunityScaleId>("home");
   const groupName = useId();
-  const scaleSelectId = useId();
 
   const swap = swaps.find((s) => s.to === swapTo) ?? null;
-  const scale = COMMUNITY_SCALES.find((s) => s.id === scaleId) ?? COMMUNITY_SCALES[0];
-  const scaled = swap && scale.households > 1 ? communityImpact(swap, scale.households) : null;
+  const { households } = COMMUNITY_SCALES[scaleId];
+  const scaled = swap && households > 1 ? communityImpact(swap, households) : null;
 
   return (
     <fieldset>
       <legend className="mb-3 font-medium">
-        {weeklyKm === 0 ? "Your commute" : `Commute instead of ${COMMUTE_LABELS[profile.commute.mode].toLowerCase()}`}
+        {weeklyKm === 0 ? "Your commute" : `Commute instead of ${inSentence(COMMUTE_LABELS[profile.commute.mode])}`}
       </legend>
       {swaps.length === 0 ? (
         <p className="text-sm text-ink-muted">
@@ -58,7 +65,7 @@ function CommuteChoice({ profile, insights }: Props) {
               <input
                 type="radio"
                 name={groupName}
-                className="size-4 accent-[var(--accent)]"
+                className={CHOICE_INPUT_CLASS}
                 checked={swapTo === s.to}
                 onChange={() => setSwapTo(s.to)}
               />
@@ -69,26 +76,20 @@ function CommuteChoice({ profile, insights }: Props) {
       )}
       {swap && (
         <>
-          <label htmlFor={scaleSelectId} className="mb-1 mt-4 block text-sm">
-            How many homes make this change?
-          </label>
-          <select
-            id={scaleSelectId}
-            className="field"
-            value={scaleId}
-            onChange={(e) => setScaleId(e.target.value as ScaleId)}
-          >
-            {COMMUNITY_SCALES.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <div className="mt-4">
+            <SelectField
+              label="How many homes make this change?"
+              value={scaleId}
+              options={COMMUNITY_SCALE_IDS}
+              labels={SCALE_LABELS}
+              onChange={setScaleId}
+            />
+          </div>
           {scaled ? (
             <Result value={`${scaled.co2TonnesPerYear} t`}>
               CO₂ saved a year by {scaled.households.toLocaleString("en-IN")} homes, as much as{" "}
-              {treesEquivalent(scaled.co2TonnesPerYear * 1000).toLocaleString("en-IN")} trees take up, and{" "}
-              {scaled.pm25KgPerYear} kg less tailpipe soot in your area.
+              {scaled.trees.toLocaleString("en-IN")} trees take up, and {scaled.pm25KgPerYear} kg less tailpipe soot in
+              your area.
             </Result>
           ) : (
             <Result value={`${swap.co2KgSavedPerYear} kg`}>
@@ -131,7 +132,7 @@ function ExerciseChoice({ insights }: { insights: Insights }) {
     return <p className="text-sm text-ink-muted">Add daily outdoor minutes to compare walk times.</p>;
   }
   // On high-risk days the plan says to exercise indoors, so the simulator offers that instead.
-  const indoors = risk.level === "high" || risk.level === "severe";
+  const indoors = isHighRisk(risk.level);
   const dose = simulatedExerciseDose(exercise, shift ? (indoors ? "indoors" : "best") : "worst");
   return (
     <div>
@@ -139,7 +140,7 @@ function ExerciseChoice({ insights }: { insights: Insights }) {
         label={
           indoors
             ? `Do my ${exercise.minutes}-min exercise indoors, purifier on`
-            : `Move my ${exercise.minutes}-min walk to ${clockLabel(windows.best.start)}`
+            : `Move my ${exercise.minutes}-min walk to ${clockOf(windows.best.start)}`
         }
         checked={shift}
         onChange={setShift}
@@ -148,8 +149,8 @@ function ExerciseChoice({ insights }: { insights: Insights }) {
       <Result value={`${dose} µg`}>
         of PM2.5 breathed in
         {shift
-          ? ` — ${cutPercent(exercise.doseAtWorst, dose)}% less than outside at ${clockLabel(windows.worst.start)}.`
-          : ` exercising outside at the worst hour, ${clockLabel(windows.worst.start)}.`}
+          ? ` — ${cutPercent(exercise.doseAtWorst, dose)}% less than outside at ${clockOf(windows.worst.start)}.`
+          : ` exercising outside at the worst hour, ${clockOf(windows.worst.start)}.`}
       </Result>
     </div>
   );

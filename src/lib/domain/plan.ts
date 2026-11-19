@@ -15,6 +15,11 @@ export const PLAN_LIMITS = {
   alternativesMax: 5,
   communityActionsMax: 4,
   groupAdviceMax: 6,
+  /** How many commute swaps a plan lists (best first). */
+  commuteSwapsShown: 3,
+  /** Minimums a Gemini plan is topped up to by reconcilePlan. */
+  indoorHacksTarget: 3,
+  communityActionsTarget: 2,
 } as const;
 
 export const planSchema = z.object({

@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { AirDataError } from "@/lib/air/open-meteo";
-import { clientKey, errorResponse, isCrossSite, jsonError, readCapped, readJson } from "@/lib/server/http";
+import { AirDataError } from "@/lib/air/fetch-json";
+import {
+  clientKey,
+  errorResponse,
+  guardRequest,
+  isCrossSite,
+  jsonError,
+  readCapped,
+  readJson,
+  streamText,
+} from "@/lib/server/http";
+import type { RateLimiter } from "@/lib/server/rate-limit";
 
 const schema = z.object({ n: z.number().min(1) }).strict();
 
@@ -197,5 +207,74 @@ describe("readCapped", () => {
     const result = await readJson(request, schema);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(413);
+  });
+});
+
+describe("guardRequest", () => {
+  const schema = z.object({ a: z.number() }).strict();
+  const post = (body: unknown, headers: Record<string, string> = {}) =>
+    new Request("http://test.local/x", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "9.9.9.9", ...headers },
+      body: JSON.stringify(body),
+    });
+  const limiter = (wait: number) => ({ check: () => wait }) as unknown as RateLimiter;
+
+  it("returns the parsed body when every check passes", async () => {
+    await expect(guardRequest(post({ a: 1 }), limiter(0), schema)).resolves.toEqual({ ok: true, data: { a: 1 } });
+  });
+
+  it("refuses a cross-site request with 403 before touching the limiter", async () => {
+    const check = vi.fn(() => 0);
+    const result = await guardRequest(post({ a: 1 }, { "sec-fetch-site": "cross-site" }), { check } as never, schema);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.response.status).toBe(403);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 with Retry-After when the limiter says wait", async () => {
+    const result = await guardRequest(post({ a: 1 }), limiter(7), schema);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(429);
+      expect(result.response.headers.get("Retry-After")).toBe("7");
+    }
+  });
+
+  it("returns 422 for a body that fails the schema", async () => {
+    const result = await guardRequest(post({ a: "x" }), limiter(0), schema);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.response.status).toBe(422);
+  });
+});
+
+describe("streamText", () => {
+  async function* chunks(...parts: string[]) {
+    yield* parts;
+  }
+
+  it("streams the chunks with the content type and no caching", async () => {
+    const response = streamText(chunks("a", "b"), "text/plain");
+    expect(response.headers.get("Content-Type")).toBe("text/plain");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.text()).toBe("ab");
+  });
+
+  it("adds the last chunk from onError when the source fails", async () => {
+    const source = (async function* () {
+      yield "Partial ";
+      throw new Error("cut");
+    })();
+    const onError = vi.fn(() => "[sorry]");
+    expect(await streamText(source, "text/plain", onError).text()).toBe("Partial [sorry]");
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it("closes quietly on failure when onError returns nothing", async () => {
+    const source = (async function* () {
+      yield "x";
+      throw new Error("cut");
+    })();
+    expect(await streamText(source, "text/plain").text()).toBe("x");
   });
 });

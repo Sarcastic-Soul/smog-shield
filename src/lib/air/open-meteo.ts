@@ -1,45 +1,31 @@
 import { z } from "zod";
 import { mean, roundTo } from "../math";
 import { pm25ToAqi } from "./aqi";
-import { dateOf, type AirReport, type DailyOutlook, type HourlyAir, type Place, type Pollutant } from "./types";
+import { AirDataError, getJson, type FetchLike } from "./fetch-json";
+import {
+  dateOf,
+  type AirReport,
+  type DailyOutlook,
+  type HourlyAir,
+  type Place,
+  type Pollutant,
+  POLLUTANTS,
+} from "./types";
 
 /**
- * Thin client for the free Open-Meteo geocoding and air-quality APIs.
+ * Air-quality client for the free Open-Meteo API (current readings, hourly
+ * forecast and a 3-day outlook).
  * No API key is needed. Responses are validated before use so a bad upstream
  * payload fails loudly here instead of deep inside the UI.
  */
 
-const GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
-const TIMEOUT_MS = 6000;
+
 /** Today plus three more days for the outlook (CAMS forecasts up to five). */
 const FORECAST_DAYS = 4;
 const OUTLOOK_DAYS = 3;
-
-export class AirDataError extends Error {
-  constructor(
-    message: string,
-    readonly kind: "not_found" | "upstream",
-  ) {
-    super(message);
-    this.name = "AirDataError";
-  }
-}
-
-const geocodeSchema = z.object({
-  results: z
-    .array(
-      z.object({
-        name: z.string(),
-        latitude: z.number(),
-        longitude: z.number(),
-        country: z.string().optional(),
-        admin1: z.string().optional(),
-        timezone: z.string().optional(),
-      }),
-    )
-    .optional(),
-});
+/** A forecast day with fewer hours than this (the cut-off last day) is left out of the outlook. */
+const MIN_HOURS_FOR_DAILY_MEAN = 12;
 
 const nullableNumber = z.number().nullable();
 
@@ -65,52 +51,6 @@ const airSchema = z.object({
     pm2_5: z.array(nullableNumber),
   }),
 });
-
-type FetchLike = typeof fetch;
-
-/** One quick retry covers the odd dropped connection without slowing real failures much. */
-const ATTEMPTS = 2;
-
-async function getJson(url: URL, fetcher: FetchLike): Promise<unknown> {
-  let response: Response | undefined;
-  for (let attempt = 1; attempt <= ATTEMPTS && !response; attempt++) {
-    try {
-      response = await fetcher(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-      if (response.status >= 500 && attempt < ATTEMPTS) response = undefined;
-    } catch (error) {
-      console.warn(`Open-Meteo request failed (attempt ${attempt})`, (error as Error).cause ?? error);
-    }
-  }
-  if (!response) {
-    throw new AirDataError("Air quality service did not respond", "upstream");
-  }
-  if (!response.ok) {
-    throw new AirDataError(`Air quality service returned ${response.status}`, "upstream");
-  }
-  return response.json();
-}
-
-export async function geocodeCity(city: string, fetcher: FetchLike = fetch): Promise<Place> {
-  const url = new URL(GEOCODE_URL);
-  url.searchParams.set("name", city);
-  url.searchParams.set("count", "1");
-  url.searchParams.set("language", "en");
-
-  const parsed = geocodeSchema.safeParse(await getJson(url, fetcher));
-  const hit = parsed.success ? parsed.data.results?.[0] : undefined;
-  if (!hit) {
-    throw new AirDataError(`We could not find "${city}". Try the English spelling, for example "Delhi".`, "not_found");
-  }
-
-  return {
-    name: hit.name,
-    region: hit.admin1 ?? "",
-    country: hit.country ?? "",
-    latitude: hit.latitude,
-    longitude: hit.longitude,
-    timezone: hit.timezone ?? "auto",
-  };
-}
 
 const round1 = (n: number | null) => roundTo(n ?? 0);
 
@@ -139,11 +79,8 @@ export function dominantPollutant(
 ): Pollutant {
   let best: Pollutant = "pm25";
   let bestValue = -1;
-  for (const [pollutant, field] of Object.entries(SUB_INDEX_FIELDS) as [
-    Pollutant,
-    (typeof SUB_INDEX_FIELDS)[Pollutant],
-  ][]) {
-    const value = current[field] ?? -1;
+  for (const pollutant of POLLUTANTS) {
+    const value = current[SUB_INDEX_FIELDS[pollutant]] ?? -1;
     if (value > bestValue) {
       best = pollutant;
       bestValue = value;
@@ -162,7 +99,7 @@ function buildOutlook(times: string[], pm25: (number | null)[], today: string): 
     byDay.set(date, [...(byDay.get(date) ?? []), value]);
   });
   return [...byDay.entries()]
-    .filter(([, values]) => values.length >= 12) // ignore partial days at the end of the forecast
+    .filter(([, values]) => values.length >= MIN_HOURS_FOR_DAILY_MEAN)
     .slice(0, OUTLOOK_DAYS)
     .map(([date, values]) => {
       const avgPm25 = roundTo(mean(values));

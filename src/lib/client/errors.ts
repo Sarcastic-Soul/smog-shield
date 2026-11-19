@@ -1,6 +1,7 @@
 /** True when a fetch was cancelled on purpose (new request or unmount). */
 export function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException ? error.name === "AbortError" : (error as Error | null)?.name === "AbortError";
+  // DOMException extends Error in browsers and Node 17+.
+  return error instanceof Error && error.name === "AbortError";
 }
 
 export function messageOf(error: unknown): string {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pm25ToAqi } from "@/lib/air/aqi";
-import type { HourlyAir } from "@/lib/air/types";
-import { clockLabel, dayOf, DAY_END_HOUR, DAY_START_HOUR, findWindows } from "@/lib/domain/windows";
+import { clockOf, type HourlyAir } from "@/lib/air/types";
+import { dayOf, DAY_END_HOUR, DAY_START_HOUR, findWindows } from "@/lib/domain/windows";
 import { hourlyPoints } from "../../fixtures/delhi";
 
 const hour = (date: string, h: number, pm25: number): HourlyAir => ({
@@ -86,9 +86,9 @@ describe("findWindows", () => {
   });
 });
 
-describe("clockLabel", () => {
+describe("clockOf", () => {
   it("returns HH:mm from a local time", () => {
-    expect(clockLabel("2026-01-15T07:00")).toBe("07:00");
+    expect(clockOf("2026-01-15T07:00")).toBe("07:00");
   });
 });
 

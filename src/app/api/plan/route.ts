@@ -1,53 +1,40 @@
 import { z } from "zod";
 import { profileSchema } from "@/lib/domain/profile";
-import { clientKey, errorResponse, isCrossSite, jsonError, readJson } from "@/lib/server/http";
+import type { PlanEvent } from "@/lib/domain/result";
+import { errorResponse, guardRequest, streamText } from "@/lib/server/http";
+import type { Facts } from "@/lib/server/plan-service";
 import { planLimiter, planService } from "@/lib/server/services";
 
-/** Gemini can take a while at peak times; the plan has its own 26 s budget. */
+/** Seconds; must stay above PLAN_BUDGET_MS (src/lib/ai/budgets.ts). Next.js needs a literal here. */
 export const maxDuration = 40;
-/** Run near the main users (South Asia) to cut round trips to the browser. */
+/** Run near the main users (South Asia) to cut round trips. */
 export const preferredRegion = "bom1";
 
 const bodySchema = z.object({ profile: profileSchema }).strict();
 
+async function* ndjson(events: AsyncIterable<PlanEvent>): AsyncGenerator<string> {
+  for await (const event of events) yield `${JSON.stringify(event)}\n`;
+}
+
 /**
  * Streams the plan as NDJSON: a rule-based draft first (instant), then the
- * final plan from Gemini. Air-data errors are reported before streaming starts,
- * so they keep proper status codes.
+ * final plan from Gemini. Air-data errors are reported before streaming
+ * starts, so they keep proper status codes.
  */
 export async function POST(request: Request): Promise<Response> {
-  if (isCrossSite(request)) return jsonError(403, "Cross-site requests are not allowed");
-
-  const wait = planLimiter.check(clientKey(request));
-  if (wait > 0) return jsonError(429, "Too many requests. Try again shortly.", { "Retry-After": String(wait) });
-
-  const body = await readJson(request, bodySchema);
+  const body = await guardRequest(request, planLimiter, bodySchema);
   if (!body.ok) return body.response;
-
   const { profile } = body.data;
-  let facts;
+
+  let facts: Facts;
   try {
     facts = await planService.factsFor(profile);
   } catch (error) {
     return errorResponse(error, "Something went wrong building your plan.");
   }
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        for await (const event of planService.planEvents(profile, facts)) {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-        }
-      } catch (error) {
-        console.error("Plan stream failed", error);
-      } finally {
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" },
+  return streamText(ndjson(planService.planEvents(profile, facts)), "application/x-ndjson; charset=utf-8", (error) => {
+    console.error("Plan stream failed", error);
+    return undefined;
   });
 }

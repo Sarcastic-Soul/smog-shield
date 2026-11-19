@@ -1,7 +1,8 @@
 import { bandFor, pm25ToAqi } from "@/lib/air/aqi";
-import { hourOf, type DailyOutlook, type HourlyAir } from "@/lib/air/types";
+import { clockOf, hourOf, type DailyOutlook, type HourlyAir } from "@/lib/air/types";
 import type { Trend } from "@/lib/domain/insights";
-import { clockLabel, dayOf, type AirWindow } from "@/lib/domain/windows";
+import { dayOf, type AirWindow } from "@/lib/domain/windows";
+import { BandDot } from "./ui";
 
 interface Props {
   hours: HourlyAir[];
@@ -26,12 +27,24 @@ function trendCopy(trend: Trend, days: DailyOutlook[]): string {
     : "Similar air for the next few days.";
 }
 
-function inWindow(time: string, window: AirWindow | undefined): boolean {
-  return Boolean(window && time >= window.start && time < window.end);
+/** Keeps clean days readable: the chart's y-axis never tops out below this PM2.5. */
+const MIN_CHART_PEAK_PM25 = 60;
+/** Smallest bar height, so a near-zero hour is still visible. */
+const MIN_BAR_PERCENT = 4;
+
+function inWindow(time: string, window: AirWindow): boolean {
+  return time >= window.start && time < window.end;
+}
+
+/** Green under the cleanest window, red under the worst, nothing elsewhere. */
+function windowMarkClass(time: string, windows: Props["windows"]): string {
+  if (windows && inWindow(time, windows.best)) return "bg-accent";
+  if (windows && inWindow(time, windows.worst)) return "bg-alert";
+  return "bg-transparent";
 }
 
 function windowLabel(window: AirWindow, nowTime: string): string {
-  return `${dayOf(window.start, nowTime)} ${clockLabel(window.start)}–${clockLabel(window.end)}`;
+  return `${dayOf(window.start, nowTime)} ${clockOf(window.start)}–${clockOf(window.end)}`;
 }
 
 function weekday(date: string): string {
@@ -44,7 +57,7 @@ function weekday(date: string): string {
  */
 export function ForecastStrip({ hours, windows, outlook, nowTime }: Props) {
   if (hours.length === 0) return null;
-  const peak = Math.max(...hours.map((h) => h.pm25), 60);
+  const peak = Math.max(...hours.map((h) => h.pm25), MIN_CHART_PEAK_PM25);
 
   return (
     <section aria-labelledby="forecast-title" className="border-b border-rule py-10">
@@ -71,19 +84,17 @@ export function ForecastStrip({ hours, windows, outlook, nowTime }: Props) {
 
       <div aria-hidden className="mt-6 flex h-40 items-end gap-[3px]">
         {hours.map((h) => {
-          const best = inWindow(h.time, windows?.best);
-          const worst = inWindow(h.time, windows?.worst);
           return (
             <div key={h.time} className="flex h-full flex-1 flex-col justify-end">
               <div
                 className="w-full rounded-t-[2px]"
                 style={{
-                  height: `${Math.max(4, (h.pm25 / peak) * 100)}%`,
+                  height: `${Math.max(MIN_BAR_PERCENT, (h.pm25 / peak) * 100)}%`,
                   background: `var(${bandFor(pm25ToAqi(h.pm25)).colorVar})`,
                 }}
-                title={`${clockLabel(h.time)} PM2.5 ${h.pm25} µg/m³`}
+                title={`${clockOf(h.time)} PM2.5 ${h.pm25} µg/m³`}
               />
-              <div className={`mt-1 h-1 w-full ${best ? "bg-accent" : worst ? "bg-alert" : "bg-transparent"}`} />
+              <div className={`mt-1 h-1 w-full ${windowMarkClass(h.time, windows)}`} />
             </div>
           );
         })}
@@ -108,7 +119,7 @@ export function ForecastStrip({ hours, windows, outlook, nowTime }: Props) {
         <tbody>
           {hours.map((h) => (
             <tr key={h.time}>
-              <td>{clockLabel(h.time)}</td>
+              <td>{clockOf(h.time)}</td>
               <td>{h.pm25}</td>
               <td>{pm25ToAqi(h.pm25)}</td>
             </tr>
@@ -125,11 +136,7 @@ export function ForecastStrip({ hours, windows, outlook, nowTime }: Props) {
               <li key={day.date} className="bg-paper-raised p-3">
                 <p className="font-mono text-xs text-ink-muted">{weekday(day.date)}</p>
                 <p className="flex items-center gap-2 font-serif text-2xl tabular-nums">
-                  <span
-                    aria-hidden
-                    className="inline-block size-2.5 rounded-full"
-                    style={{ background: `var(${bandFor(day.aqi).colorVar})` }}
-                  />
+                  <BandDot colorVar={bandFor(day.aqi).colorVar} size="sm" />
                   {day.avgPm25}
                 </p>
                 <p className="text-xs">µg/m³ · {bandFor(day.aqi).label}</p>

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildFallbackPlan } from "@/lib/domain/fallback-plan";
 import { buildInsights } from "@/lib/domain/insights";
 import type { Plan } from "@/lib/domain/plan";
+import type { Profile } from "@/lib/domain/profile-options";
+import type { PlanResult } from "@/lib/domain/result";
 import { createPlanService, type PlanDeps } from "@/lib/server/plan-service";
 import { delhiReport } from "../../fixtures/delhi";
 import { makeProfile } from "../../fixtures/profiles";
@@ -14,7 +16,15 @@ aiPlan.headline = "Written by the model";
 function setup(generated: Plan | null) {
   const getAirReport = vi.fn<PlanDeps["getAirReport"]>(async () => delhiReport());
   const generatePlan = vi.fn<PlanDeps["generatePlan"]>(async () => generated);
-  return { getAirReport, generatePlan, service: createPlanService({ getAirReport, generatePlan }) };
+  const base = createPlanService({ getAirReport, generatePlan });
+  // The final plan only, as a caller that does not stream would see it.
+  async function planFor(p: Profile): Promise<PlanResult> {
+    let last: PlanResult | undefined;
+    for await (const event of base.planEvents(p, await base.factsFor(p))) last = event.result;
+    if (!last) throw new Error("Plan stream ended without a result");
+    return last;
+  }
+  return { getAirReport, generatePlan, service: { ...base, planFor } };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -129,7 +139,7 @@ describe("createPlanService.planFor", () => {
       },
       generatePlan: async () => null,
     });
-    await expect(service.planFor(profile)).rejects.toThrow("boom");
+    await expect(service.factsFor(profile)).rejects.toThrow("boom");
   });
 });
 

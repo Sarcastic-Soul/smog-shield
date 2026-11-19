@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { profileSchema } from "@/lib/domain/profile";
 import {
   DEFAULT_PROFILE,
-  LANGUAGE_LABELS,
+  PROFILE_LIMITS,
+  LANGUAGE_ENGLISH_NAMES,
+  LANGUAGE_NATIVE_NAMES,
   LANGUAGES,
-  profileSchema,
   RTL_LANGUAGES,
+  textDirection,
   type Profile,
-} from "@/lib/domain/profile";
+} from "@/lib/domain/profile-options";
 import { makeProfile } from "../../fixtures/profiles";
 
 const parse = (patch: Record<string, unknown>) => profileSchema.safeParse({ ...makeProfile(), ...patch });
@@ -101,12 +104,19 @@ describe("language and new home fields", () => {
   });
 
   it("has a native and an English label for every language", () => {
-    expect(Object.keys(LANGUAGE_LABELS)).toEqual([...LANGUAGES]);
-    expect(LANGUAGE_LABELS.hi).toEqual({ native: "हिन्दी", english: "Hindi" });
+    expect(Object.keys(LANGUAGE_NATIVE_NAMES)).toEqual([...LANGUAGES]);
+    expect(Object.keys(LANGUAGE_ENGLISH_NAMES)).toEqual([...LANGUAGES]);
+    expect(LANGUAGE_NATIVE_NAMES.hi).toBe("हिन्दी");
+    expect(LANGUAGE_ENGLISH_NAMES.hi).toBe("Hindi");
   });
 
   it("marks only Urdu as right to left", () => {
     expect([...RTL_LANGUAGES]).toEqual(["ur"]);
+  });
+
+  it("gives lang and dir for text in a language", () => {
+    expect(textDirection("ur")).toEqual({ lang: "ur", dir: "rtl" });
+    expect(textDirection("hi")).toEqual({ lang: "hi", dir: "ltr" });
   });
 
   it("requires boolean smoker and waste-burning flags", () => {
@@ -122,5 +132,22 @@ describe("language and new home fields", () => {
     expect(DEFAULT_PROFILE.language).toBe("en");
     expect(DEFAULT_PROFILE.home.smokerAtHome).toBe(false);
     expect(DEFAULT_PROFILE.home.wasteBurningNearby).toBe(false);
+  });
+});
+
+describe("PROFILE_LIMITS", () => {
+  it("are the limits the schema enforces", () => {
+    const base = makeProfile();
+    expect(parse({ household: { ...base.household, adults: PROFILE_LIMITS.peopleMax } }).success).toBe(true);
+    expect(parse({ household: { ...base.household, adults: PROFILE_LIMITS.peopleMax + 1 } }).success).toBe(false);
+    const commute = (distanceKm: number, daysPerWeek: number) => ({
+      commute: { ...base.commute, distanceKm, daysPerWeek },
+    });
+    expect(parse(commute(PROFILE_LIMITS.distanceKmMax, PROFILE_LIMITS.daysPerWeekMax)).success).toBe(true);
+    expect(parse(commute(PROFILE_LIMITS.distanceKmMax + 1, 5)).success).toBe(false);
+    expect(parse(commute(10, PROFILE_LIMITS.daysPerWeekMax + 1)).success).toBe(false);
+    const exercise = (outdoorExerciseMinutes: number) => ({ home: { ...base.home, outdoorExerciseMinutes } });
+    expect(parse(exercise(PROFILE_LIMITS.exerciseMinutesMax)).success).toBe(true);
+    expect(parse(exercise(PROFILE_LIMITS.exerciseMinutesMax + 1)).success).toBe(false);
   });
 });

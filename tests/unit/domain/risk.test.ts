@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessRisk, sensitiveGroupsOf } from "@/lib/domain/risk";
+import { assessRisk, isHighRisk, sensitiveGroupsOf } from "@/lib/domain/risk";
 import { healthyProfile, makeProfile } from "../../fixtures/profiles";
 
 describe("assessRisk", () => {
@@ -54,5 +54,16 @@ describe("sensitiveGroupsOf", () => {
   it("is empty for a healthy adult household", () => {
     expect(sensitiveGroupsOf(healthyProfile())).toEqual([]);
     expect(assessRisk(120, healthyProfile()).hasSensitiveMembers).toBe(false);
+  });
+});
+
+describe("isHighRisk", () => {
+  it("is true only for high and severe", () => {
+    expect(["low", "moderate", "high", "severe"].map((l) => isHighRisk(l as never))).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ]);
   });
 });

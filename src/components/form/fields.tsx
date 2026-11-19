@@ -57,7 +57,15 @@ export function SelectField<T extends string>({ label, value, options, labels, o
       <label htmlFor={id} className="mb-1 block text-sm">
         {label}
       </label>
-      <select id={id} className="field" value={value} onChange={(e) => onChange(e.target.value as T)}>
+      <select
+        id={id}
+        className="field"
+        value={value}
+        onChange={(e) => {
+          const next = options.find((option) => option === e.target.value);
+          if (next) onChange(next);
+        }}
+      >
         {options.map((option) => (
           <option key={option} value={option}>
             {labels[option]}
@@ -67,6 +75,9 @@ export function SelectField<T extends string>({ label, value, options, labels, o
     </div>
   );
 }
+
+/** Native checkbox/radio styling, shared so every choice control looks the same. */
+export const CHOICE_INPUT_CLASS = "size-4 accent-[var(--accent)]";
 
 interface CheckboxFieldProps {
   label: string;
@@ -81,7 +92,7 @@ export function CheckboxField({ label, checked, onChange, textClassName = "text-
     <label className={`flex min-h-11 cursor-pointer items-center gap-3 ${textClassName}`}>
       <input
         type="checkbox"
-        className="size-4 accent-[var(--accent)]"
+        className={CHOICE_INPUT_CLASS}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />

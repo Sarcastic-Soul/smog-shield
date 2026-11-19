@@ -18,7 +18,8 @@ export function createRateLimiter(limit: number, windowMs: number, maxKeys = 500
         if (hits.size >= maxKeys) {
           // Drop expired entries first; if still full, drop the oldest key.
           for (const [k, v] of hits) if (v.resetAt <= now) hits.delete(k);
-          if (hits.size >= maxKeys) hits.delete(hits.keys().next().value as string);
+          const [oldest] = hits.keys();
+          if (hits.size >= maxKeys && oldest !== undefined) hits.delete(oldest);
         }
         hits.set(key, { count: 1, resetAt: now + windowMs });
         return 0;

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { requestPlan } from "@/lib/client/api";
+import { loadSavedProfile, saveProfile, validateProfile } from "@/lib/client/profile-storage";
 import { isAbortError, messageOf } from "@/lib/client/errors";
 import { DEFAULT_PROFILE, type Profile } from "@/lib/domain/profile-options";
 import type { PlanResult } from "@/lib/domain/result";
@@ -10,31 +11,8 @@ import { AskPanel } from "./AskPanel";
 import { ForecastStrip } from "./ForecastStrip";
 import { ImpactSimulator } from "./ImpactSimulator";
 import { PlanView } from "./PlanView";
+import { EmptyState, ErrorState, LoadingState } from "./ResultStates";
 import { ProfileForm } from "./ProfileForm";
-
-const STORAGE_KEY = "smog-shield:profile";
-
-/** The zod schema is loaded on demand so the validation library stays out of the first page load. */
-const loadSchema = () => import("@/lib/domain/profile").then((m) => m.profileSchema);
-
-async function loadSavedProfile(): Promise<Profile | null> {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = (await loadSchema()).safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveProfile(profile: Profile): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-  } catch {
-    // Storage can be blocked (private mode); the app works without it.
-  }
-}
 
 type State =
   | { status: "idle" }
@@ -90,29 +68,34 @@ export function SmogShieldApp() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const parsed = (await loadSchema()).safeParse(profile);
-      if (!parsed.success) {
-        setState({ status: "error", message: parsed.error.issues[0].message });
+      const checked = await validateProfile(profile);
+      if (!checked.ok) {
+        setState({ status: "error", message: checked.message });
         return;
       }
-      controller.current = new AbortController();
-      setState({ status: "loading" });
-      saveProfile(parsed.data);
-      let shown = false;
-      await requestPlan(
-        parsed.data,
-        (event) => {
-          setState({ status: "ready", result: event.result, profile: parsed.data, pending: event.kind === "draft" });
-          if (!shown) showResults();
-          shown = true;
-        },
-        controller.current.signal,
-      );
+      saveProfile(checked.profile);
+      await streamPlan(checked.profile);
     } catch (err) {
       if (!isAbortError(err)) setState({ status: "error", message: messageOf(err) });
     } finally {
       inFlight.current = false;
     }
+  }
+
+  /** Shows the draft as soon as it arrives, then swaps in the final plan. */
+  async function streamPlan(checked: Profile) {
+    controller.current = new AbortController();
+    setState({ status: "loading" });
+    let shown = false;
+    await requestPlan(
+      checked,
+      (event) => {
+        setState({ status: "ready", result: event.result, profile: checked, pending: event.kind === "draft" });
+        if (!shown) showResults();
+        shown = true;
+      },
+      controller.current.signal,
+    );
   }
 
   return (
@@ -128,82 +111,47 @@ export function SmogShieldApp() {
         </p>
         {state.status === "idle" && <EmptyState />}
         {state.status === "loading" && <LoadingState city={profile.city} />}
-        {state.status === "error" && (
-          <div role="alert" className="rounded-md border border-alert bg-alert-soft p-6">
-            <p className="font-medium text-alert">We could not build your plan</p>
-            <p className="mt-1">{state.message}</p>
-          </div>
-        )}
+        {state.status === "error" && <ErrorState message={state.message} />}
         {state.status === "ready" && (
-          <div key={state.result.report.now.time + state.result.report.place.name} className="animate-rise">
-            <AirReportPanel report={state.result.report} insights={state.result.insights} />
-            <ForecastStrip
-              hours={state.result.report.next24h}
-              windows={state.result.insights.windows}
-              outlook={state.result.insights.outlook}
-              nowTime={state.result.report.now.time}
-            />
-            <PlanView
-              plan={state.result.plan}
-              source={state.result.source}
-              pending={state.pending}
-              safetyAlerts={state.result.insights.safetyAlerts}
-              language={state.profile.language}
-            />
-            <ImpactSimulator profile={state.profile} insights={state.result.insights} />
-            <AskPanel profile={state.profile} />
-          </div>
+          <Results
+            key={state.result.report.now.time + state.result.report.place.name}
+            result={state.result}
+            profile={state.profile}
+            pending={state.pending}
+          />
         )}
       </div>
     </div>
   );
 }
 
-const STEPS = [
-  [
-    "Live readings",
-    "We pull the current AQI, a 24-hour PM2.5 forecast and a 3-day outlook for your city from Open-Meteo.",
-  ],
-  [
-    "Your household",
-    "Children, older relatives, asthma or heart conditions change what is safe. So do your commute, stove and heating.",
-  ],
-  [
-    "A plan with numbers",
-    "Gemini turns the readings into your next 24 hours, indoor fixes, greener swaps and things to do with neighbours, each with its measured effect.",
-  ],
-] as const;
-
-function EmptyState() {
-  return (
-    <div className="max-w-2xl pt-2">
-      <p className="font-serif text-5xl leading-[1.05] tracking-tight md:text-6xl">
-        Winter smog changes by the hour. Your day can change with it.
-      </p>
-      <ol className="mt-10 divide-y divide-rule border-y border-rule">
-        {STEPS.map(([title, body], i) => (
-          <li key={title} className="grid grid-cols-[3rem_1fr] gap-2 py-5">
-            <span className="font-mono text-sm text-ink-muted">0{i + 1}</span>
-            <div>
-              <p className="font-medium">{title}</p>
-              <p className="text-ink-muted">{body}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <p className="mt-6 text-sm text-ink-muted">
-        Fill in your home and press <span className="text-ink">Build today&apos;s plan</span>.
-      </p>
-    </div>
-  );
+interface ResultsProps {
+  result: PlanResult;
+  profile: Profile;
+  pending: boolean;
 }
 
-function LoadingState({ city }: { city: string }) {
+/** Every results panel, in reading order. */
+function Results({ result, profile, pending }: ResultsProps) {
+  const { report, insights, plan, source } = result;
   return (
-    <div className="space-y-4 pt-2">
-      <p className="font-serif text-3xl tracking-tight">Reading the air over {city}…</p>
-      <div className="h-36 w-64 animate-pulse rounded-md bg-rule motion-reduce:animate-none" />
-      <div className="h-40 animate-pulse rounded-md bg-rule motion-reduce:animate-none" />
+    <div className="animate-rise">
+      <AirReportPanel report={report} insights={insights} />
+      <ForecastStrip
+        hours={report.next24h}
+        windows={insights.windows}
+        outlook={insights.outlook}
+        nowTime={report.now.time}
+      />
+      <PlanView
+        plan={plan}
+        source={source}
+        pending={pending}
+        safetyAlerts={insights.safetyAlerts}
+        language={profile.language}
+      />
+      <ImpactSimulator profile={profile} insights={insights} />
+      <AskPanel profile={profile} />
     </div>
   );
 }

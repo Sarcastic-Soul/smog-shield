@@ -1,5 +1,5 @@
 import { bandFor, type AqiBandId } from "../air/aqi";
-import type { HealthCondition, Profile } from "./profile";
+import type { HealthCondition, Profile } from "./profile-options";
 
 export type SensitiveGroupId = "children" | "seniors" | HealthCondition;
 
@@ -32,6 +32,11 @@ export interface HouseholdRisk {
 }
 
 const LEVEL_ORDER: RiskLevel[] = ["low", "moderate", "high", "severe"];
+
+/** High and severe days: N95s outdoors, exercise indoors. */
+export function isHighRisk(level: RiskLevel): boolean {
+  return level === "high" || level === "severe";
+}
 
 const BASE_LEVEL: Record<AqiBandId, RiskLevel> = {
   good: "low",
@@ -86,6 +91,6 @@ export function assessRisk(aqi: number, profile: Profile): HouseholdRisk {
     hasSensitiveMembers,
     sensitiveGroups,
     outdoorRule,
-    maskAdvised: level === "high" || level === "severe",
+    maskAdvised: isHighRisk(level),
   };
 }

@@ -7,9 +7,8 @@ import {
   HEATING_TYPES,
   LANGUAGES,
   PROFILE_LIMITS,
+  type Profile,
 } from "./profile-options";
-
-export * from "./profile-options";
 
 const count = (max: number) => z.number().int().min(0).max(max);
 
@@ -28,15 +27,15 @@ export const profileSchema = z
       // geocoder only matches Latin-script names.
       .regex(/^[\p{Script=Latin}\p{M} .,'-]+$/u, "Use English letters for the city name"),
     household: z.object({
-      adults: count(12).min(1),
-      children: count(12),
-      seniors: count(12),
+      adults: count(PROFILE_LIMITS.peopleMax).min(1),
+      children: count(PROFILE_LIMITS.peopleMax),
+      seniors: count(PROFILE_LIMITS.peopleMax),
       conditions: z.array(z.enum(HEALTH_CONDITIONS)).max(HEALTH_CONDITIONS.length),
     }),
     commute: z.object({
       mode: z.enum(COMMUTE_MODES),
-      distanceKm: z.number().min(0).max(150),
-      daysPerWeek: count(7),
+      distanceKm: z.number().min(0).max(PROFILE_LIMITS.distanceKmMax),
+      daysPerWeek: count(PROFILE_LIMITS.daysPerWeekMax),
     }),
     home: z.object({
       cooking: z.enum(COOKING_FUELS),
@@ -44,7 +43,7 @@ export const profileSchema = z
       hasPurifier: z.boolean(),
       smokerAtHome: z.boolean(),
       wasteBurningNearby: z.boolean(),
-      outdoorExerciseMinutes: z.number().int().min(0).max(240),
+      outdoorExerciseMinutes: z.number().int().min(0).max(PROFILE_LIMITS.exerciseMinutesMax),
     }),
     budget: z.enum(BUDGETS),
     language: z.enum(LANGUAGES),
@@ -52,4 +51,7 @@ export const profileSchema = z
   })
   .strict();
 
-export type Profile = z.infer<typeof profileSchema>;
+// Compile-time guard: the schema must produce exactly the Profile interface.
+type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const schemaMatchesProfile: Exact<z.infer<typeof profileSchema>, Profile> = true;
+void schemaMatchesProfile;

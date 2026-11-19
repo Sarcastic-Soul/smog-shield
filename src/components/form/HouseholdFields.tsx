@@ -1,7 +1,13 @@
 "use client";
 
-import { CONDITION_LABELS, HEALTH_CONDITIONS, type HealthCondition, type Profile } from "@/lib/domain/profile-options";
-import { Legend, NumberField } from "./fields";
+import {
+  CONDITION_LABELS,
+  HEALTH_CONDITIONS,
+  PROFILE_LIMITS,
+  type HealthCondition,
+  type Profile,
+} from "@/lib/domain/profile-options";
+import { CHOICE_INPUT_CLASS, Legend, NumberField } from "./fields";
 
 interface Props {
   household: Profile["household"];
@@ -22,21 +28,21 @@ export function HouseholdFields({ household, onChange }: Props) {
           label="Adults"
           value={household.adults}
           min={1}
-          max={12}
+          max={PROFILE_LIMITS.peopleMax}
           onChange={(adults) => onChange({ adults })}
         />
         <NumberField
           label="Children"
           value={household.children}
           min={0}
-          max={12}
+          max={PROFILE_LIMITS.peopleMax}
           onChange={(children) => onChange({ children })}
         />
         <NumberField
           label="Over 65"
           value={household.seniors}
           min={0}
-          max={12}
+          max={PROFILE_LIMITS.peopleMax}
           onChange={(seniors) => onChange({ seniors })}
         />
       </div>
@@ -55,7 +61,7 @@ export function HouseholdFields({ household, onChange }: Props) {
             >
               <input
                 type="checkbox"
-                className="size-4 accent-[var(--accent)]"
+                className={CHOICE_INPUT_CLASS}
                 checked={checked}
                 onChange={(e) => toggle(condition, e.target.checked)}
               />

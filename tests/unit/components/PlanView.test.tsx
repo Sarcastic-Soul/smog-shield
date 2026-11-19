@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { PlanView } from "@/components/PlanView";
 import type { Plan } from "@/lib/domain/plan";
-import type { Language } from "@/lib/domain/profile";
+import type { Language } from "@/lib/domain/profile-options";
 import { planResultFixture } from "../../fixtures/results";
 
 const fixture = planResultFixture();

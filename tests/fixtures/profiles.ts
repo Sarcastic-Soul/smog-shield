@@ -1,4 +1,4 @@
-import { DEFAULT_PROFILE, type Profile } from "@/lib/domain/profile";
+import { DEFAULT_PROFILE, type Profile } from "@/lib/domain/profile-options";
 
 /** Fresh copy so one test cannot change another's input. */
 export function makeProfile(patch: Partial<Profile> = {}): Profile {

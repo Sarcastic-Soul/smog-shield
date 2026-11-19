@@ -1,31 +1,49 @@
-import type { Profile } from "../domain/profile";
-import type { PlanEvent } from "../domain/result";
+import type { Profile } from "../domain/profile-options";
+import { isPlanEvent, type PlanEvent } from "../domain/result";
 
+/** The server's `{ error }` message, or a generic one with the status code. */
 async function errorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) return body.error;
+    const body: unknown = await response.json();
+    if (typeof body === "object" && body !== null && "error" in body && typeof body.error === "string") {
+      return body.error;
+    }
   } catch {
-    // Fall through to the generic message.
+    // Not JSON: fall through to the generic message.
   }
   return `Request failed (${response.status})`;
 }
 
-/** Splits a text stream into complete lines. */
-async function* lines(body: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<string> {
+/** POSTs JSON and returns the streamed response body, or throws the server's message. */
+async function postForStream(url: string, payload: unknown, signal?: AbortSignal) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok || !response.body) throw new Error(await errorMessage(response));
+  return response.body;
+}
+
+/** Decodes a byte stream into text chunks as they arrive. */
+async function* textChunks(body: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<string> {
   const reader = body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
-    buffer += value;
-    let newline = buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) yield line;
-      newline = buffer.indexOf("\n");
-    }
+    if (done) return;
+    yield value;
+  }
+}
+
+/** Splits a text stream into complete, non-empty lines. */
+export async function* lines(chunks: AsyncIterable<string>): AsyncGenerator<string> {
+  let buffer = "";
+  for await (const chunk of chunks) {
+    buffer += chunk;
+    const parts = buffer.split("\n");
+    buffer = parts.pop() ?? "";
+    for (const line of parts) if (line.trim()) yield line.trim();
   }
   if (buffer.trim()) yield buffer.trim();
 }
@@ -39,16 +57,11 @@ export async function requestPlan(
   onEvent: (event: PlanEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch("/api/plan", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profile }),
-    signal,
-  });
-  if (!response.ok || !response.body) throw new Error(await errorMessage(response));
+  const body = await postForStream("/api/plan", { profile }, signal);
   let gotFinal = false;
-  for await (const line of lines(response.body)) {
-    const event = JSON.parse(line) as PlanEvent;
+  for await (const line of lines(textChunks(body))) {
+    const event: unknown = JSON.parse(line);
+    if (!isPlanEvent(event)) throw new Error("The plan response was not understood.");
     gotFinal ||= event.kind === "final";
     onEvent(event);
   }
@@ -62,20 +75,10 @@ export async function askQuestion(
   onText: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch("/api/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profile, question }),
-    signal,
-  });
-  if (!response.ok || !response.body) throw new Error(await errorMessage(response));
-
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  const body = await postForStream("/api/ask", { profile, question }, signal);
   let text = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    text += value;
+  for await (const chunk of textChunks(body)) {
+    text += chunk;
     onText(text);
   }
 }

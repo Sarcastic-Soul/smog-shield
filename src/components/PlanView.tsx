@@ -1,6 +1,6 @@
 import { CircleNotch, UsersThree, Warning } from "@phosphor-icons/react";
 import type { Plan, PlanSource } from "@/lib/domain/plan";
-import { RTL_LANGUAGES, type Language } from "@/lib/domain/profile-options";
+import { textDirection, type Language } from "@/lib/domain/profile-options";
 
 interface Props {
   plan: Plan;
@@ -19,21 +19,20 @@ function SectionTitle({ id, children }: { id: string; children: React.ReactNode 
   );
 }
 
+function sourceLabel(source: PlanSource, pending: boolean): string {
+  if (source === "gemini") return "Written by Gemini from today's numbers";
+  return pending ? "Quick plan from today's numbers" : "Built from rules (AI busy right now)";
+}
+
 export function PlanView({ plan, source, pending, safetyAlerts, language }: Props) {
   // Gemini writes in the chosen language; the rule-based plan is English only.
   const textLanguage: Language = source === "gemini" ? language : "en";
-  const textProps = { lang: textLanguage, dir: RTL_LANGUAGES.has(textLanguage) ? "rtl" : "ltr" } as const;
+  const textProps = textDirection(textLanguage);
   const englishFallback = source === "rules" && language !== "en" && !pending;
 
   return (
     <section aria-labelledby="plan-title" className="border-b border-rule py-10">
-      <p className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted">
-        {source === "gemini"
-          ? "Written by Gemini from today's numbers"
-          : pending
-            ? "Quick plan from today's numbers"
-            : "Built from rules (AI busy right now)"}
-      </p>
+      <p className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted">{sourceLabel(source, pending)}</p>
       {pending && (
         <p className="mt-2 inline-flex items-center gap-2 rounded-md bg-accent-soft px-3 py-1.5 text-sm text-accent">
           <CircleNotch weight="bold" aria-hidden className="animate-spin motion-reduce:animate-none" />
@@ -71,8 +70,8 @@ export function PlanView({ plan, source, pending, safetyAlerts, language }: Prop
         <div>
           <SectionTitle id="routine-title">Your next 24 hours</SectionTitle>
           <ol aria-labelledby="routine-title" className="relative border-l border-rule" {...textProps}>
-            {plan.routine.map((step, i) => (
-              <li key={i} className="mb-6 pl-6 last:mb-0">
+            {plan.routine.map((step) => (
+              <li key={`${step.day}-${step.time}-${step.activity}`} className="mb-6 pl-6 last:mb-0">
                 <span
                   aria-hidden
                   className="absolute -left-[5px] mt-2 size-[9px] rounded-full border border-ink bg-paper"
@@ -96,8 +95,8 @@ export function PlanView({ plan, source, pending, safetyAlerts, language }: Prop
           <div>
             <SectionTitle id="indoor-title">Cleaner air indoors</SectionTitle>
             <ul aria-labelledby="indoor-title" className="divide-y divide-rule border-y border-rule" {...textProps}>
-              {plan.indoorHacks.map((hack, i) => (
-                <li key={i} className="py-4">
+              {plan.indoorHacks.map((hack) => (
+                <li key={hack.title} className="py-4">
                   <p className="font-medium">{hack.title}</p>
                   <p className="text-sm">{hack.action}</p>
                   <p className="mt-1 text-sm text-accent">{hack.impact}</p>
@@ -110,8 +109,8 @@ export function PlanView({ plan, source, pending, safetyAlerts, language }: Prop
             <div>
               <SectionTitle id="groups-title">For the people most at risk</SectionTitle>
               <dl aria-labelledby="groups-title" className="space-y-4" {...textProps}>
-                {plan.groupAdvice.map((item, i) => (
-                  <div key={i}>
+                {plan.groupAdvice.map((item) => (
+                  <div key={item.group}>
                     <dt className="font-medium first-letter:uppercase">{item.group}</dt>
                     <dd className="text-sm">{item.advice}</dd>
                   </div>
@@ -129,8 +128,8 @@ export function PlanView({ plan, source, pending, safetyAlerts, language }: Prop
           className="grid gap-px overflow-hidden rounded-md border border-rule bg-rule md:grid-cols-2"
           {...textProps}
         >
-          {plan.alternatives.map((alt, i) => (
-            <li key={i} className="bg-paper-raised p-5 md:odd:last:col-span-2">
+          {plan.alternatives.map((alt) => (
+            <li key={alt.swap} className="bg-paper-raised p-5 md:odd:last:col-span-2">
               <p className="font-medium">{alt.swap}</p>
               <p className="text-sm">{alt.action}</p>
               <p className="mt-2 text-sm text-accent">{alt.impact}</p>
@@ -151,8 +150,8 @@ export function PlanView({ plan, source, pending, safetyAlerts, language }: Prop
           className="max-w-3xl divide-y divide-rule border-y border-rule"
           {...textProps}
         >
-          {plan.communityActions.map((item, i) => (
-            <li key={i} className="grid gap-1 py-4 sm:grid-cols-[12rem_1fr] sm:gap-6">
+          {plan.communityActions.map((item) => (
+            <li key={`${item.who}-${item.action}`} className="grid gap-1 py-4 sm:grid-cols-[12rem_1fr] sm:gap-6">
               <p className="font-medium">{item.who}</p>
               <div>
                 <p className="text-sm">{item.action}</p>

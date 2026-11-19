@@ -1,15 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildFallbackPlan,
-  inSentence,
-  reconcilePlan,
-  scheduleFromNow,
-  swapKeyword,
-  timeInNotes,
-} from "@/lib/domain/fallback-plan";
+import { buildFallbackPlan } from "@/lib/domain/fallback-plan";
 import { buildInsights } from "@/lib/domain/insights";
 import { planSchema, type Plan } from "@/lib/domain/plan";
-import type { Profile } from "@/lib/domain/profile";
+import type { Profile } from "@/lib/domain/profile-options";
 import { delhiReport } from "../../fixtures/delhi";
 import { healthyProfile, makeProfile } from "../../fixtures/profiles";
 
@@ -113,105 +106,6 @@ describe("safety alerts feeding the plan", () => {
   });
 });
 
-const step = (time: string) => ({ time, activity: `Step at ${time}`, why: "Because" });
-
-describe("scheduleFromNow", () => {
-  it("marks steps still ahead as today and passed steps as tomorrow", () => {
-    const result = scheduleFromNow([step("07:00"), step("12:00"), step("22:00")], "2026-01-15T10:00");
-    expect(result.map((r) => [r.time, r.day])).toEqual([
-      ["12:00", "today"],
-      ["22:00", "today"],
-      ["07:00", "tomorrow"],
-    ]);
-  });
-
-  it("keeps a step at exactly the current time as today", () => {
-    const result = scheduleFromNow([step("10:00"), step("09:59")], "2026-01-15T10:00");
-    expect(result.map((r) => [r.time, r.day])).toEqual([
-      ["10:00", "today"],
-      ["09:59", "tomorrow"],
-    ]);
-  });
-
-  it("uses the minutes of the current time, not only the hour", () => {
-    const result = scheduleFromNow([step("10:15"), step("10:45")], "2026-01-15T10:30");
-    expect(result.map((r) => r.day)).toEqual(["today", "tomorrow"]);
-  });
-
-  it("sorts each day by time", () => {
-    const result = scheduleFromNow([step("19:30"), step("08:30"), step("12:00"), step("07:00")], "2026-01-15T10:00");
-    expect(result.map((r) => r.time)).toEqual(["12:00", "19:30", "07:00", "08:30"]);
-  });
-
-  it("puts everything on today late at night only for steps that are still ahead", () => {
-    const result = scheduleFromNow([step("23:00"), step("06:00")], "2026-01-15T22:30");
-    expect(result.map((r) => [r.time, r.day])).toEqual([
-      ["23:00", "today"],
-      ["06:00", "tomorrow"],
-    ]);
-  });
-
-  it("returns an empty list for no steps", () => {
-    expect(scheduleFromNow([], "2026-01-15T10:00")).toEqual([]);
-  });
-});
-
-describe("reconcilePlan", () => {
-  const fallback = planFor(makeProfile({ home: { ...makeProfile().home, smokerAtHome: true, cooking: "biomass" } }));
-  const base = planFor(makeProfile());
-  const hack = (title: string) => ({ title, action: "a", impact: "i" });
-  const community = (who: string) => ({ who, action: "a", impact: "i" });
-
-  it("fills up to 3 indoor hacks and 2 community actions, keeping the model's items first", () => {
-    const ai: Plan = { ...base, indoorHacks: [hack("Mine")], communityActions: [community("My group")] };
-    const result = reconcilePlan(ai, fallback);
-    expect(result.indoorHacks).toHaveLength(3);
-    expect(result.indoorHacks[0].title).toBe("Mine");
-    expect(result.communityActions).toHaveLength(2);
-    expect(result.communityActions[0].who).toBe("My group");
-  });
-
-  it("does not add items whose title matches ignoring case", () => {
-    const title = fallback.indoorHacks[0].title;
-    const ai: Plan = { ...base, indoorHacks: [hack(title.toUpperCase()), hack("Other")] };
-    const result = reconcilePlan(ai, fallback);
-    const titles = result.indoorHacks.map((h) => h.title.toLowerCase());
-    expect(new Set(titles).size).toBe(titles.length);
-    expect(titles).toHaveLength(3);
-  });
-
-  it("leaves a plan that already meets the minimum unchanged", () => {
-    const ai: Plan = {
-      ...base,
-      indoorHacks: [hack("a"), hack("b"), hack("c"), hack("d")],
-      communityActions: [community("x"), community("y"), community("z")],
-    };
-    const result = reconcilePlan(ai, fallback);
-    expect(result.indoorHacks).toEqual(ai.indoorHacks);
-    expect(result.communityActions).toEqual(ai.communityActions);
-  });
-
-  it("never exceeds 6 hacks or 4 community actions", () => {
-    const ai: Plan = {
-      ...base,
-      indoorHacks: Array.from({ length: 6 }, (_, i) => hack(`h${i}`)),
-      communityActions: Array.from({ length: 4 }, (_, i) => community(`c${i}`)),
-    };
-    const result = reconcilePlan(ai, fallback);
-    expect(result.indoorHacks).toHaveLength(6);
-    expect(result.communityActions).toHaveLength(4);
-  });
-
-  it("keeps every other field from the model", () => {
-    const ai: Plan = { ...base, headline: "Model headline", indoorHacks: [hack("Mine")] };
-    const result = reconcilePlan(ai, fallback);
-    expect(result.headline).toBe("Model headline");
-    expect(result.routine).toEqual(ai.routine);
-    expect(result.alternatives.slice(0, ai.alternatives.length)).toEqual(ai.alternatives);
-    expect(planSchema.safeParse(result).success).toBe(true);
-  });
-});
-
 describe("fallback plan content", () => {
   const homeOf = () => makeProfile().home;
 
@@ -278,46 +172,6 @@ describe("fallback plan content", () => {
   it("drops the commute step for work from home", () => {
     const plan = planFor(makeProfile({ commute: { mode: "work_from_home", distanceKm: 0, daysPerWeek: 0 } }));
     expect(plan.routine.some((s) => s.time === "08:30")).toBe(false);
-  });
-});
-
-describe("timeInNotes", () => {
-  it.each([
-    ["football at 5pm", "17:00"],
-    ["football at 5:30 pm", "17:30"],
-    ["run at 6 AM", "06:00"],
-    ["lunch 12pm", "12:00"],
-    ["midnight 12 am", "00:00"],
-    ["match at 17:00", "17:00"],
-    ["meet 07:45 sharp", "07:45"],
-  ])("finds the time in %j", (notes, expected) => {
-    expect(timeInNotes(notes)).toBe(expected);
-  });
-
-  it.each(["no time here", "", "25:00", "13pm and 99:99", "room 5"])("returns null for %j", (notes) => {
-    expect(timeInNotes(notes)).toBeNull();
-  });
-});
-
-describe("inSentence", () => {
-  it("lower-cases the first letter", () => {
-    expect(inSentence("Bus")).toBe("bus");
-    expect(inSentence("Metro / train")).toBe("metro / train");
-    expect(inSentence("Petrol car")).toBe("petrol car");
-  });
-
-  it("keeps acronyms and already-lower text", () => {
-    expect(inSentence("CNG car")).toBe("CNG car");
-    expect(inSentence("bus")).toBe("bus");
-    expect(inSentence("")).toBe("");
-  });
-});
-
-describe("swapKeyword", () => {
-  it("lower-cases the part before ' / '", () => {
-    expect(swapKeyword("Metro / train")).toBe("metro");
-    expect(swapKeyword("Bus")).toBe("bus");
-    expect(swapKeyword("Work from home")).toBe("work from home");
   });
 });
 
@@ -409,41 +263,5 @@ describe("fallback plan: new rules", () => {
   it("picks the first shared swap for the building action, not work from home", () => {
     const plan = planFor(makeProfile());
     expect(plan.communityActions[0].action).toContain("shared bus trip");
-  });
-});
-
-describe("reconcilePlan swap top-up", () => {
-  const profile = makeProfile();
-  const fallback = planFor(profile);
-  const alt = (swap: string, action = "a") => ({ swap, action, impact: "i" });
-  const base = planFor(profile);
-
-  it("adds rule swaps whose target mode the model did not mention", () => {
-    const ai: Plan = { ...base, alternatives: [alt("Petrol car → Bus", "Take the bus")] };
-    const result = reconcilePlan(ai, fallback);
-    expect(result.alternatives[0].swap).toBe("Petrol car → Bus");
-    const swaps = result.alternatives.map((a) => a.swap);
-    expect(swaps.some((s) => /Metro/.test(s))).toBe(true);
-    expect(swaps.filter((s) => /Bus/.test(s))).toHaveLength(1);
-  });
-
-  it("treats a mention in the action text as covered, ignoring case", () => {
-    const ai: Plan = {
-      ...base,
-      alternatives: fallback.alternatives.map(() => alt("Something else", `Use METRO or the BUS or a cng car or pot`)),
-    };
-    const result = reconcilePlan(ai, fallback);
-    expect(result.alternatives.map((a) => a.swap)).not.toContain(fallback.alternatives[0].swap);
-  });
-
-  it("never exceeds the alternatives limit", () => {
-    const ai: Plan = { ...base, alternatives: Array.from({ length: 5 }, (_, i) => alt(`x${i}`, "nothing")) };
-    expect(reconcilePlan(ai, fallback).alternatives).toHaveLength(5);
-  });
-
-  it("ignores fallback entries without a target arrow", () => {
-    const odd: Plan = { ...fallback, alternatives: [alt("No arrow here")] };
-    const ai: Plan = { ...base, alternatives: [alt("Mine")] };
-    expect(reconcilePlan(ai, odd).alternatives).toEqual(ai.alternatives);
   });
 });

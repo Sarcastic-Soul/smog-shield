@@ -1,26 +1,41 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AirDataError } from "@/lib/air/open-meteo";
+import { AirDataError } from "@/lib/air/fetch-json";
 import { delhiReport } from "../../fixtures/delhi";
 import { freshIp, jsonRequest, validProfile } from "./helpers";
 
-vi.mock("@/lib/server/air-service", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/server/air-service")>("@/lib/server/air-service");
-  return { ...actual, getAirReport: vi.fn() };
-});
-vi.mock("@/lib/ai/gemini", () => ({
+const mocks = vi.hoisted(() => ({
+  getAirReport: vi.fn(),
   generatePlan: vi.fn(),
-  isAiConfigured: vi.fn(),
-  isAiAvailable: vi.fn(),
-  streamAnswer: vi.fn(),
+  assistant: null as null | {
+    isAvailable: () => boolean;
+    generatePlan: () => unknown;
+    streamAnswer: (...a: unknown[]) => AsyncGenerator<string>;
+  },
 }));
 
+// Same wiring as src/lib/server/services.ts, but with fakes for Gemini and the air service.
+vi.mock("@/lib/server/services", async () => {
+  const { createPlanService } =
+    await vi.importActual<typeof import("@/lib/server/plan-service")>("@/lib/server/plan-service");
+  const { createRateLimiter } =
+    await vi.importActual<typeof import("@/lib/server/rate-limit")>("@/lib/server/rate-limit");
+  return {
+    get assistant() {
+      return mocks.assistant;
+    },
+    planService: createPlanService({
+      getAirReport: (city: string) => mocks.getAirReport(city),
+      generatePlan: (prompt: string) => mocks.generatePlan(prompt),
+    }),
+    planLimiter: createRateLimiter(10, 60_000),
+    askLimiter: createRateLimiter(20, 60_000),
+  };
+});
+
 const { POST } = await import("@/app/api/ask/route");
-const { getAirReport } = await import("@/lib/server/air-service");
-const { isAiAvailable, isAiConfigured, streamAnswer } = await import("@/lib/ai/gemini");
-const mockedAir = vi.mocked(getAirReport);
-const mockedConfigured = vi.mocked(isAiConfigured);
-const mockedAvailable = vi.mocked(isAiAvailable);
-const mockedStream = vi.mocked(streamAnswer);
+const mockedAir = mocks.getAirReport;
+const mockedStream = vi.fn();
+let available = true;
 
 const call = (body: unknown, ip?: string) => POST(jsonRequest("http://test.local/api/ask", body, ip));
 const goodBody = () => ({ profile: validProfile(), question: "Can the kids play outside?" });
@@ -32,17 +47,19 @@ async function* chunks(...parts: string[]) {
 beforeEach(() => {
   mockedAir.mockReset();
   mockedAir.mockResolvedValue(delhiReport());
-  mockedConfigured.mockReset();
-  mockedConfigured.mockReturnValue(true);
-  mockedAvailable.mockReset();
-  mockedAvailable.mockReturnValue(true);
+  available = true;
+  mocks.assistant = {
+    isAvailable: () => available,
+    generatePlan: vi.fn(),
+    streamAnswer: (...args: unknown[]) => mockedStream(...args),
+  };
   mockedStream.mockReset();
   mockedStream.mockImplementation(() => chunks("Keep them ", "inside."));
 });
 
 describe("POST /api/ask", () => {
-  it("returns 503 when the AI is not configured", async () => {
-    mockedConfigured.mockReturnValue(false);
+  it("returns 503 when no assistant is configured", async () => {
+    mocks.assistant = null;
     const response = await call(goodBody());
     expect(response.status).toBe(503);
     expect((await response.json()).error).toMatch(/busy right now/);
@@ -50,7 +67,7 @@ describe("POST /api/ask", () => {
   });
 
   it("returns 503 when the circuit breaker is open, before touching air data or the limiter", async () => {
-    mockedAvailable.mockReturnValue(false);
+    available = false;
     const response = await call(goodBody());
     expect(response.status).toBe(503);
     expect((await response.json()).error).toMatch(/busy right now/);
@@ -143,7 +160,7 @@ describe("POST /api/ask", () => {
   });
 
   it("uses the shared question limits", async () => {
-    const { QUESTION_LIMITS } = await import("@/lib/domain/profile");
+    const { QUESTION_LIMITS } = await import("@/lib/domain/profile-options");
     const min = "x".repeat(QUESTION_LIMITS.min);
     const max = "x".repeat(QUESTION_LIMITS.max);
     expect((await call({ ...goodBody(), question: min })).status).toBe(200);

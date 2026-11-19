@@ -1,19 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  BUILDING_SCALE,
+  COMMUNITY_SCALE_IDS,
   COMMUNITY_SCALES,
+  communityScaleLabel,
+  commuteSwaps,
   communityImpact,
-  cutPercent,
-  simulatedExerciseDose,
   TREE_KG_CO2_PER_YEAR,
   treesEquivalent,
-  BUILDING_SCALE,
-  commuteSwaps,
-  exerciseShift,
-  HEATING_HAZARD,
-  indoorEstimate,
-  maskEffect,
   weeklyCommuteKm,
-} from "@/lib/domain/impact";
+} from "@/lib/domain/emissions";
 import { makeProfile } from "../../fixtures/profiles";
 
 function commuteProfile(mode: string, distanceKm: number, daysPerWeek = 5) {
@@ -91,65 +87,16 @@ describe("commuteSwaps", () => {
   });
 });
 
-describe("indoorEstimate", () => {
-  it("applies the infiltration and purifier factors", () => {
-    expect(indoorEstimate(100)).toEqual({
-      outdoorPm25: 100,
-      indoorPm25: 70,
-      indoorWithPurifier: 28,
-      purifierCutPercent: 60,
-    });
-  });
-
-  it("rounds to one decimal", () => {
-    expect(indoorEstimate(62).indoorPm25).toBe(43.4);
-  });
-});
-
-describe("exerciseShift", () => {
-  it("computes inhaled dose as concentration x 1.6 m3/h x hours", () => {
-    const shift = exerciseShift(60, 100, 50);
-    expect(shift.doseAtWorst).toBe(160);
-    expect(shift.doseAtBest).toBe(80);
-    expect(shift.cutPercent).toBe(50);
-    // 50 * 0.7 * 0.4 * 1.6 = 22.4
-    expect(shift.indoorDose).toBe(22);
-  });
-
-  it("scales with minutes", () => {
-    expect(exerciseShift(30, 100, 50).doseAtWorst).toBe(80);
-  });
-
-  it("reports a zero cut when the worst window has no PM2.5", () => {
-    expect(exerciseShift(45, 0, 0).cutPercent).toBe(0);
-  });
-
-  it("reports a zero cut when both windows are equal", () => {
-    expect(exerciseShift(45, 60, 60).cutPercent).toBe(0);
-  });
-});
-
-describe("maskEffect", () => {
-  it("cuts the dose by 80%", () => {
-    expect(maskEffect(100)).toEqual({ doseNoMask: 100, doseWithN95: 20 });
-  });
-});
-
-describe("indoorEstimate with a smoker", () => {
-  it("adds 40 µg/m³ before the purifier cuts it", () => {
-    const clean = indoorEstimate(100);
-    const smoky = indoorEstimate(100, true);
-    expect(clean.indoorPm25).toBe(70);
-    expect(smoky.indoorPm25).toBe(110);
-    expect(smoky.indoorWithPurifier).toBe(44);
-  });
-});
-
 describe("communityImpact", () => {
   const swap = { to: "metro" as const, co2KgSavedPerWeek: 10, pm25GramsSavedPerWeek: 0.5, co2KgSavedPerYear: 460 };
 
   it("scales one household's yearly saving to many households", () => {
-    expect(communityImpact(swap, 40)).toEqual({ households: 40, co2TonnesPerYear: 18.4, pm25KgPerYear: 0.92 });
+    expect(communityImpact(swap, 40)).toEqual({
+      households: 40,
+      co2TonnesPerYear: 18.4,
+      pm25KgPerYear: 0.92,
+      trees: treesEquivalent(460 * 40),
+    });
     expect(communityImpact(swap, 1000).co2TonnesPerYear).toBe(460);
   });
 
@@ -160,15 +107,17 @@ describe("communityImpact", () => {
 
 describe("COMMUNITY_SCALES", () => {
   it("offers a home, a building of 40 and a ward of 1,000", () => {
-    expect(COMMUNITY_SCALES.map((s) => s.households)).toEqual([1, 40, 1000]);
+    expect(COMMUNITY_SCALE_IDS.map((id) => COMMUNITY_SCALES[id].households)).toEqual([1, 40, 1000]);
   });
-});
 
-describe("HEATING_HAZARD", () => {
-  it("flags coal or wood as carbon monoxide and gas heaters as nitrogen dioxide", () => {
-    expect(HEATING_HAZARD.coal_or_wood).toBe("carbon_monoxide");
-    expect(HEATING_HAZARD.gas_heater).toBe("nitrogen_dioxide");
-    expect(HEATING_HAZARD.electric_heater).toBe("none");
+  it("uses the building scale for the plan's community numbers", () => {
+    expect(BUILDING_SCALE).toBe(COMMUNITY_SCALES.building);
+  });
+
+  it("labels each scale with its size", () => {
+    expect(communityScaleLabel("home")).toBe(COMMUNITY_SCALES.home.name);
+    expect(communityScaleLabel("building")).toBe(`${COMMUNITY_SCALES.building.name} (40 homes)`);
+    expect(communityScaleLabel("ward")).toBe(`${COMMUNITY_SCALES.ward.name} (1,000 homes)`);
   });
 });
 
@@ -179,23 +128,6 @@ describe("treesEquivalent", () => {
     expect(treesEquivalent(5)).toBe(1);
     expect(treesEquivalent(0)).toBe(0);
     expect(treesEquivalent(-4)).toBe(0);
-  });
-});
-
-describe("cutPercent", () => {
-  it("is the rounded drop, never negative", () => {
-    expect(cutPercent(100, 25)).toBe(75);
-    expect(cutPercent(100, 150)).toBe(0);
-    expect(cutPercent(0, 5)).toBe(0);
-  });
-});
-
-describe("simulatedExerciseDose", () => {
-  const shift = exerciseShift(60, 100, 40);
-  it("picks the dose for each choice", () => {
-    expect(simulatedExerciseDose(shift, "worst")).toBe(shift.doseAtWorst);
-    expect(simulatedExerciseDose(shift, "best")).toBe(shift.doseAtBest);
-    expect(simulatedExerciseDose(shift, "indoors")).toBe(shift.indoorDose);
   });
 });
 

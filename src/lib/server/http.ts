@@ -1,5 +1,6 @@
 import type { z } from "zod";
-import { AirDataError } from "../air/open-meteo";
+import type { RateLimiter } from "./rate-limit";
+import { AirDataError } from "../air/fetch-json";
 
 export const MAX_BODY_BYTES = 8 * 1024;
 
@@ -97,4 +98,49 @@ export async function readJson<S extends z.ZodType>(request: Request, schema: S)
     return { ok: false, response: jsonError(422, `${first.path.join(".") || "body"}: ${first.message}`) };
   }
   return { ok: true, data: parsed.data };
+}
+
+/**
+ * The checks every API route runs first, in order: same-site, per-IP rate
+ * limit, then a size-capped, schema-checked JSON body.
+ */
+export async function guardRequest<S extends z.ZodType>(
+  request: Request,
+  limiter: RateLimiter,
+  schema: S,
+): Promise<Parsed<z.infer<S>>> {
+  if (isCrossSite(request)) return { ok: false, response: jsonError(403, "Cross-site requests are not allowed") };
+  const wait = limiter.check(clientKey(request));
+  if (wait > 0) {
+    return {
+      ok: false,
+      response: jsonError(429, "Too many requests. Try again shortly.", { "Retry-After": String(wait) }),
+    };
+  }
+  return readJson(request, schema);
+}
+
+/**
+ * Streams text chunks as an uncached response. If the source fails part-way,
+ * `onError` may return a last chunk (for example an apology) before closing.
+ */
+export function streamText(
+  chunks: AsyncIterable<string>,
+  contentType: string,
+  onError: (error: unknown) => string | undefined = () => undefined,
+): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      } catch (error) {
+        const last = onError(error);
+        if (last) controller.enqueue(encoder.encode(last));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, { headers: { "Content-Type": contentType, "Cache-Control": "no-store" } });
 }

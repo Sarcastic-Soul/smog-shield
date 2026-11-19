@@ -1,54 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AirDataError, dominantPollutant, fetchAirReport, geocodeCity } from "@/lib/air/open-meteo";
-import { airResponse, delhiReport, DELHI_PLACE, geocodeResponse } from "../../fixtures/delhi";
+import { dominantPollutant, fetchAirReport } from "@/lib/air/open-meteo";
+import { airResponse, delhiReport, DELHI_PLACE } from "../../fixtures/delhi";
 
 beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 const jsonFetch = (body: unknown, status = 200) => vi.fn<typeof fetch>(async () => Response.json(body, { status }));
-
-describe("geocodeCity", () => {
-  it("maps the first hit to a Place", async () => {
-    const fetcher = jsonFetch(geocodeResponse);
-    await expect(geocodeCity("New Delhi", fetcher)).resolves.toEqual(DELHI_PLACE);
-    const url = String(fetcher.mock.calls[0][0]);
-    expect(url).toContain("name=New+Delhi");
-    expect(url).toContain("count=1");
-  });
-
-  it("throws not_found when there are no results", async () => {
-    await expect(geocodeCity("Nowhereville", jsonFetch({}))).rejects.toMatchObject({
-      name: "AirDataError",
-      kind: "not_found",
-    });
-  });
-
-  it("throws not_found when results is an empty list", async () => {
-    await expect(geocodeCity("x", jsonFetch({ results: [] }))).rejects.toMatchObject({ kind: "not_found" });
-  });
-
-  it("throws upstream on a 500", async () => {
-    const error = await geocodeCity("Delhi", jsonFetch({}, 500)).catch((e) => e);
-    expect(error).toBeInstanceOf(AirDataError);
-    expect(error.kind).toBe("upstream");
-    expect(error.message).toContain("500");
-  });
-
-  it("throws upstream when fetch itself fails", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("network down"));
-    await expect(geocodeCity("Delhi", fetcher)).rejects.toMatchObject({ kind: "upstream" });
-  });
-
-  it("fills blanks for missing optional fields", async () => {
-    const body = { results: [{ name: "Smalltown", latitude: 1, longitude: 2 }] };
-    await expect(geocodeCity("Smalltown", jsonFetch(body))).resolves.toMatchObject({
-      region: "",
-      country: "",
-      timezone: "auto",
-    });
-  });
-});
 
 describe("fetchAirReport", () => {
   it("parses the fixture into an AirReport", async () => {
@@ -107,23 +65,6 @@ describe("fetchAirReport", () => {
   });
 });
 
-describe("upstream retry", () => {
-  it("retries once after a dropped connection", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockRejectedValueOnce(new TypeError("socket hang up"))
-      .mockResolvedValueOnce(Response.json(geocodeResponse));
-    await expect(geocodeCity("New Delhi", fetcher)).resolves.toEqual(DELHI_PLACE);
-    expect(fetcher).toHaveBeenCalledTimes(2);
-  });
-
-  it("retries once after a 5xx, then reports the status", async () => {
-    const fetcher = jsonFetch({}, 503);
-    await expect(geocodeCity("Delhi", fetcher)).rejects.toMatchObject({ kind: "upstream" });
-    expect(fetcher).toHaveBeenCalledTimes(2);
-  });
-});
-
 describe("outlook", () => {
   type Air = ReturnType<typeof airResponse>;
   const truncate = (data: Air, hours: number): Air => ({
@@ -170,36 +111,6 @@ describe("outlook", () => {
     const { outlook } = await fetchAirReport(DELHI_PLACE, jsonFetch(data));
     expect(outlook.map((d) => d.date)).toEqual(["2026-01-17", "2026-01-18"]);
     expect(outlook[0].avgPm25).toBeGreaterThan(0);
-  });
-});
-
-describe("upstream errors", () => {
-  it("suggests the English spelling when a city is not found", async () => {
-    const error = await geocodeCity("दिल्ली", jsonFetch({})).catch((e) => e);
-    expect(error.message).toContain("English spelling");
-  });
-
-  it("recovers when a 503 is followed by a good answer", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({}, { status: 503 }))
-      .mockResolvedValueOnce(Response.json(airResponse()));
-    await expect(fetchAirReport(DELHI_PLACE, fetcher)).resolves.toMatchObject({ source: "open-meteo" });
-    expect(fetcher).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not retry a 4xx", async () => {
-    const fetcher = jsonFetch({}, 429);
-    await expect(fetchAirReport(DELHI_PLACE, fetcher)).rejects.toMatchObject({ kind: "upstream" });
-    expect(fetcher).toHaveBeenCalledTimes(1);
-  });
-
-  it("fails after two dropped connections", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("socket hang up"));
-    await expect(fetchAirReport(DELHI_PLACE, fetcher)).rejects.toMatchObject({
-      message: "Air quality service did not respond",
-    });
-    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
 

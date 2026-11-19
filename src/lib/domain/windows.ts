@@ -1,5 +1,5 @@
 import { pm25ToAqi } from "../air/aqi";
-import { clockOf, dateOf, hourOf, type HourlyAir } from "../air/types";
+import { dateOf, hourOf, type HourlyAir } from "../air/types";
 import { mean, roundTo } from "../math";
 
 export interface AirWindow {
@@ -76,9 +76,6 @@ export function findWindows(hours: HourlyAir[], size = 2): { best: AirWindow; wo
   if (bestIndex < 0) return null;
   return { best: windowAt(hours, bestIndex, size), worst: windowAt(hours, worstIndex, size) };
 }
-
-/** "07:00" style label from a local time string. */
-export const clockLabel = clockOf;
 
 /** "today" or "tomorrow" relative to `now`, both local `YYYY-MM-DDTHH:mm` strings. */
 export function dayOf(localTime: string, now: string): "today" | "tomorrow" {

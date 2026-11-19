@@ -1,26 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AirDataError } from "@/lib/air/open-meteo";
+import { AirDataError } from "@/lib/air/fetch-json";
 import { delhiReport } from "../../fixtures/delhi";
 import type { PlanEvent } from "@/lib/domain/result";
 import { planResultFixture } from "../../fixtures/results";
 import { freshIp, jsonRequest, validProfile } from "./helpers";
 
-vi.mock("@/lib/server/air-service", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/server/air-service")>("@/lib/server/air-service");
-  return { ...actual, getAirReport: vi.fn() };
-});
-vi.mock("@/lib/ai/gemini", () => ({
-  generatePlan: vi.fn(async () => null),
-  isAiConfigured: vi.fn(() => false),
-  isAiAvailable: vi.fn(() => true),
-  streamAnswer: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  getAirReport: vi.fn(),
+  generatePlan: vi.fn(),
+  assistant: null as null | {
+    isAvailable: () => boolean;
+    generatePlan: () => unknown;
+    streamAnswer: (...a: unknown[]) => AsyncGenerator<string>;
+  },
 }));
 
+// Same wiring as src/lib/server/services.ts, but with fakes for Gemini and the air service.
+vi.mock("@/lib/server/services", async () => {
+  const { createPlanService } =
+    await vi.importActual<typeof import("@/lib/server/plan-service")>("@/lib/server/plan-service");
+  const { createRateLimiter } =
+    await vi.importActual<typeof import("@/lib/server/rate-limit")>("@/lib/server/rate-limit");
+  return {
+    get assistant() {
+      return mocks.assistant;
+    },
+    planService: createPlanService({
+      getAirReport: (city: string) => mocks.getAirReport(city),
+      generatePlan: (prompt: string) => mocks.generatePlan(prompt),
+    }),
+    planLimiter: createRateLimiter(10, 60_000),
+    askLimiter: createRateLimiter(20, 60_000),
+  };
+});
+
 const { POST } = await import("@/app/api/plan/route");
-const { getAirReport } = await import("@/lib/server/air-service");
-const { generatePlan } = await import("@/lib/ai/gemini");
-const mockedAir = vi.mocked(getAirReport);
-const mockedGenerate = vi.mocked(generatePlan);
+const mockedAir = mocks.getAirReport;
+const mockedGenerate = mocks.generatePlan;
 
 async function readEvents(response: Response): Promise<PlanEvent[]> {
   const text = await response.text();
@@ -35,6 +51,8 @@ const call = (body: unknown, ip?: string) => POST(jsonRequest("http://test.local
 beforeEach(() => {
   mockedAir.mockReset();
   mockedAir.mockResolvedValue(delhiReport());
+  mockedGenerate.mockReset();
+  mockedGenerate.mockResolvedValue(null);
 });
 
 describe("POST /api/plan", () => {

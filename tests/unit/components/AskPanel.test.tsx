@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AskPanel } from "@/components/AskPanel";
-import { QUESTION_LIMITS } from "@/lib/domain/profile";
+import { QUESTION_LIMITS } from "@/lib/domain/profile-options";
 import { askQuestion } from "@/lib/client/api";
 import { makeProfile } from "../../fixtures/profiles";
 

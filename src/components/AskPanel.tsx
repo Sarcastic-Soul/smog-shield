@@ -4,7 +4,7 @@ import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { askQuestion } from "@/lib/client/api";
 import { isAbortError, messageOf } from "@/lib/client/errors";
-import { QUESTION_LIMITS, RTL_LANGUAGES, type Profile } from "@/lib/domain/profile-options";
+import { QUESTION_LIMITS, textDirection, type Profile } from "@/lib/domain/profile-options";
 
 const SUGGESTIONS = [
   "Is it safe for my kids to play outside after school?",
@@ -96,11 +96,7 @@ export function AskPanel({ profile }: { profile: Profile }) {
       <div aria-live="polite" aria-busy={busy} className="mt-6 max-w-2xl">
         {asked && <p className="text-sm text-ink-muted">You asked: {asked}</p>}
         {answer && (
-          <p
-            lang={profile.language}
-            dir={RTL_LANGUAGES.has(profile.language) ? "rtl" : "ltr"}
-            className="mt-2 whitespace-pre-line text-lg"
-          >
+          <p {...textDirection(profile.language)} className="mt-2 whitespace-pre-line text-lg">
             {answer}
           </p>
         )}

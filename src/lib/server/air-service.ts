@@ -1,26 +1,41 @@
-import "server-only";
-import { AirDataError, fetchAirReport, geocodeCity } from "../air/open-meteo";
+import { AirDataError } from "../air/fetch-json";
 import type { AirReport, Place } from "../air/types";
 import { createTtlCache } from "./ttl-cache";
 
-const isNotFound = (error: unknown) => error instanceof AirDataError && error.kind === "not_found";
+export interface AirServiceDeps {
+  geocode: (city: string) => Promise<Place>;
+  fetchReport: (place: Place) => Promise<AirReport>;
+}
+
+export interface AirService {
+  /** Air report for a city name as typed. Cache keys ignore case and extra spaces. */
+  getAirReport(city: string): Promise<AirReport>;
+}
 
 /** City names rarely move, so geocoding (including "not found") is kept for a day. */
-const places = createTtlCache<Place>({ ttlMs: 24 * 60 * 60_000, max: 2000, cacheError: isNotFound });
+const PLACE_TTL_MS = 24 * 60 * 60_000;
+/** Open-Meteo updates hourly; 10 minutes keeps us well inside its fair-use limits. */
+const REPORT_TTL_MS = 10 * 60_000;
+
+const isNotFound = (error: unknown) => error instanceof AirDataError && error.kind === "not_found";
 
 /**
- * Air data is keyed by rounded coordinates, so "Delhi" and "New Delhi" share
- * one entry. Open-Meteo updates hourly; 10 minutes keeps us well inside their
- * fair-use limits. Requests made at the same moment share one upstream call.
+ * Cached air data. Reports are keyed by rounded coordinates, so "Delhi" and
+ * "New Delhi" share one entry, and requests made at the same moment share one
+ * upstream call.
  */
-const reports = createTtlCache<AirReport>({ ttlMs: 10 * 60_000, max: 500 });
+export function createAirService({ geocode, fetchReport }: AirServiceDeps): AirService {
+  const places = createTtlCache<Place>({ ttlMs: PLACE_TTL_MS, max: 2000, cacheError: isNotFound });
+  const reports = createTtlCache<AirReport>({ ttlMs: REPORT_TTL_MS, max: 500 });
 
-/** Air report for a city name as typed. Cache keys ignore case and extra spaces. */
-export async function getAirReport(city: string): Promise<AirReport> {
-  const name = city.trim().replace(/\s+/g, " ");
-  const place = await places.get(name.toLowerCase(), () => geocodeCity(name));
-  const coordKey = `${place.latitude.toFixed(2)},${place.longitude.toFixed(2)}`;
-  const report = await reports.get(coordKey, () => fetchAirReport(place));
-  // Keep the name the user typed resolved to, even when coordinates are shared.
-  return report.place === place ? report : { ...report, place };
+  return {
+    async getAirReport(city) {
+      const name = city.trim().replace(/\s+/g, " ");
+      const place = await places.get(name.toLowerCase(), () => geocode(name));
+      const coordKey = `${place.latitude.toFixed(2)},${place.longitude.toFixed(2)}`;
+      const report = await reports.get(coordKey, () => fetchReport(place));
+      // Keep the place this name resolved to, even when coordinates are shared.
+      return report.place === place ? report : { ...report, place };
+    },
+  };
 }

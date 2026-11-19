@@ -7,6 +7,7 @@ import {
   COOKING_LABELS,
   HEATING_LABELS,
   HEATING_TYPES,
+  PROFILE_LIMITS,
   type Profile,
 } from "@/lib/domain/profile-options";
 import { CheckboxField, Legend, NumberField, SelectField } from "./fields";
@@ -34,7 +35,7 @@ export function CommuteFields({ commute, onChange }: CommuteProps) {
             suffix="km"
             value={commute.distanceKm}
             min={0}
-            max={150}
+            max={PROFILE_LIMITS.distanceKmMax}
             step={0.5}
             onChange={(distanceKm) => onChange({ distanceKm })}
           />
@@ -42,7 +43,7 @@ export function CommuteFields({ commute, onChange }: CommuteProps) {
             label="Days a week"
             value={commute.daysPerWeek}
             min={0}
-            max={7}
+            max={PROFILE_LIMITS.daysPerWeekMax}
             onChange={(daysPerWeek) => onChange({ daysPerWeek })}
           />
         </div>
@@ -79,7 +80,7 @@ export function HomeFields({ home, onChange }: HomeProps) {
         suffix="min a day"
         value={home.outdoorExerciseMinutes}
         min={0}
-        max={240}
+        max={PROFILE_LIMITS.exerciseMinutesMax}
         step={5}
         onChange={(outdoorExerciseMinutes) => onChange({ outdoorExerciseMinutes })}
       />

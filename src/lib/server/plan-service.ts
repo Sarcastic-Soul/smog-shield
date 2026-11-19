@@ -1,9 +1,11 @@
 import type { AirReport } from "../air/types";
-import { buildFacts, buildPlanPrompt } from "../ai/prompt";
-import { buildFallbackPlan, reconcilePlan } from "../domain/fallback-plan";
+import { buildFacts } from "../ai/facts";
+import { buildPlanPrompt } from "../ai/prompt";
+import { buildFallbackPlan } from "../domain/fallback-plan";
+import { reconcilePlan } from "../domain/rules/reconcile";
 import { buildInsights, type Insights } from "../domain/insights";
 import type { Plan, PlanSource } from "../domain/plan";
-import type { Profile } from "../domain/profile";
+import type { Profile } from "../domain/profile-options";
 import type { PlanEvent, PlanResult } from "../domain/result";
 import { createTtlCache } from "./ttl-cache";
 
@@ -29,12 +31,18 @@ const RULES_PLAN_TTL_MS = 60_000;
  * Builds answers for one household. Dependencies are injected so the whole
  * flow can be tested without network calls.
  */
-export function createPlanService(deps: PlanDeps, cacheSize = 200) {
+export interface PlanService {
+  /** Server-side facts for a household; used by the plan and the follow-up answers. */
+  factsFor(profile: Profile): Promise<Facts>;
+  /** A rule-based draft (when Gemini must be called) and then the final plan. */
+  planEvents(profile: Profile, facts: Facts): AsyncGenerator<PlanEvent>;
+}
+
+export function createPlanService(deps: PlanDeps, cacheSize = 200): PlanService {
   // Same household + same forecast hour = same plan. Saves AI calls.
   const aiPlans = createTtlCache<CachedPlan>({ ttlMs: AI_PLAN_TTL_MS, max: cacheSize });
   const rulePlans = createTtlCache<CachedPlan>({ ttlMs: RULES_PLAN_TTL_MS, max: cacheSize });
 
-  /** Server-side facts for a household. Used by both the plan and the follow-up questions. */
   async function factsFor(profile: Profile): Promise<Facts> {
     const report = await deps.getAirReport(profile.city);
     const insights = buildInsights(profile, report);
@@ -66,7 +74,10 @@ export function createPlanService(deps: PlanDeps, cacheSize = 200) {
         const aiPlan = await deps.generatePlan(buildPlanPrompt(text, profile.notes));
         // A rejected promise is evicted, so a failed AI call is not cached as a hit.
         if (!aiPlan) throw new Error("no AI plan");
-        const plan = profile.language === "en" ? reconcilePlan(aiPlan, rules.plan) : aiPlan;
+        const plan =
+          profile.language === "en"
+            ? reconcilePlan(aiPlan, rules.plan, { profile, swaps: insights.commute.swaps })
+            : aiPlan;
         return { plan, source: "gemini" as const };
       })
       .catch(() => null);
@@ -75,13 +86,5 @@ export function createPlanService(deps: PlanDeps, cacheSize = 200) {
     yield { kind: "final", result: result(ai ?? rules) };
   }
 
-  /** The final plan only, for callers that do not stream. */
-  async function planFor(profile: Profile): Promise<PlanResult> {
-    let last: PlanResult | undefined;
-    for await (const event of planEvents(profile, await factsFor(profile))) last = event.result;
-    if (!last) throw new Error("Plan stream ended without a result");
-    return last;
-  }
-
-  return { factsFor, planEvents, planFor };
+  return { factsFor, planEvents };
 }

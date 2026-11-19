@@ -15,7 +15,8 @@ export class LruCache<V> {
   set(key: string, value: V): void {
     this.store.delete(key);
     this.store.set(key, value);
-    if (this.store.size > this.max) this.store.delete(this.store.keys().next().value as string);
+    const [oldest] = this.store.keys();
+    if (this.store.size > this.max && oldest !== undefined) this.store.delete(oldest);
   }
 
   delete(key: string): void {
