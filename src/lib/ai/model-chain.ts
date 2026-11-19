@@ -1,7 +1,9 @@
+import { logWarn } from "@/lib/log";
+
 /**
  * Tries a list of Gemini models in order. A later model is only used when an
  * earlier one is overloaded (503), rate limited (429) or too slow, which
- * happens at peak hours. Pure and dependency-free, so it is easy to test.
+ * happens at peak hours. It has no SDK dependency, so it is easy to test.
  */
 
 export interface ModelChainOptions {
@@ -47,7 +49,7 @@ export async function withModelChain<T>(
     } catch (error) {
       lastError = error;
       if (!isRetryable(error)) break;
-      console.warn(`Gemini ${model} unavailable (${statusOf(error) ?? "timeout"})`);
+      logWarn(`Gemini ${model} unavailable (${statusOf(error) ?? "timeout"})`);
     }
   }
   throw lastError;

@@ -59,6 +59,12 @@ Coverage uses the V8 provider over `src/lib/**` and `src/components/**`. The bui
 | Functions  | 80%     |
 | Branches   | 75%     |
 
+## Continuous integration
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push and pull request: lint, both type checks, the Prettier check, unit tests with the coverage thresholds, a production build, and then the Playwright suite with axe scans.
+
+Tests have their own [`tests/tsconfig.json`](../tests/tsconfig.json). It extends the root config and turns off only `noUncheckedIndexedAccess`, so assertions like `mock.calls[0][0]` stay readable while `src` keeps the strictest index checks.
+
 ## Commands
 
 ```bash

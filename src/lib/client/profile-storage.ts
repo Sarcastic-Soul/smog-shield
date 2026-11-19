@@ -1,4 +1,4 @@
-import type { Profile } from "../domain/profile-options";
+import type { Profile } from "@/lib/domain/profile-options";
 
 /*
  * Remembers the household in localStorage between visits. Storage can be
@@ -9,7 +9,7 @@ import type { Profile } from "../domain/profile-options";
 const STORAGE_KEY = "smog-shield:profile";
 
 /** The zod schema is loaded on demand so the validation library stays out of the first page load. */
-export const loadSchema = () => import("../domain/profile").then((m) => m.profileSchema);
+export const loadSchema = () => import("@/lib/domain/profile").then((m) => m.profileSchema);
 
 export async function loadSavedProfile(): Promise<Profile | null> {
   try {

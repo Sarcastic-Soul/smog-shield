@@ -4,6 +4,7 @@ import { profileSchema } from "@/lib/domain/profile";
 import { QUESTION_LIMITS } from "@/lib/domain/profile-options";
 import { errorResponse, guardRequest, jsonError, streamText } from "@/lib/server/http";
 import { askLimiter, assistant, planService } from "@/lib/server/services";
+import { logWarn } from "@/lib/log";
 
 /** Seconds; must stay above ASK_BUDGET_MS (src/lib/ai/budgets.ts). Next.js needs a literal here. */
 export const maxDuration = 30;
@@ -35,7 +36,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return streamText(assistant.streamAnswer(prompt, request.signal), "text/plain; charset=utf-8", (error) => {
-    console.warn("Ask stream failed", error instanceof Error ? error.message : error);
+    logWarn("Ask stream failed", error);
     return "\n\nSorry, the answer was cut off. Please try again.";
   });
 }

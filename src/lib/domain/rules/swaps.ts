@@ -1,9 +1,9 @@
-import type { CommuteSwap } from "../emissions";
-import { CLEAN_COOKING_PM25 } from "../exposure";
-import type { Insights } from "../insights";
-import { PLAN_LIMITS, type Plan } from "../plan";
-import { COMMUTE_LABELS, COOKING_LABELS, type Profile } from "../profile-options";
-import { inSentence } from "./text";
+import type { CommuteSwap } from "@/lib/domain/emissions";
+import { CLEAN_COOKING_PM25 } from "@/lib/domain/exposure";
+import type { Insights } from "@/lib/domain/insights";
+import { PLAN_LIMITS, type Plan } from "@/lib/domain/plan";
+import { COMMUTE_LABELS, COOKING_LABELS, type Profile } from "@/lib/domain/profile-options";
+import { inSentence } from "@/lib/domain/rules/text";
 
 /* Low-emission swaps of the rule-based plan: commute first, then home. */
 

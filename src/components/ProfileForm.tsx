@@ -3,9 +3,9 @@
 import { ArrowRight, CircleNotch } from "@phosphor-icons/react";
 import { useId, type FormEvent } from "react";
 import { BUDGETS, LANGUAGE_NATIVE_NAMES, LANGUAGES, PROFILE_LIMITS, type Profile } from "@/lib/domain/profile-options";
-import { Legend, SelectField } from "./form/fields";
-import { HouseholdFields } from "./form/HouseholdFields";
-import { CommuteFields, HomeFields } from "./form/LifestyleFields";
+import { Legend, SelectField } from "@/components/form/fields";
+import { HouseholdFields } from "@/components/form/HouseholdFields";
+import { CommuteFields, HomeFields } from "@/components/form/LifestyleFields";
 
 interface Props {
   profile: Profile;

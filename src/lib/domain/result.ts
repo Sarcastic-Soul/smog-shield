@@ -1,6 +1,6 @@
-import type { AirReport } from "../air/types";
-import type { Insights } from "./insights";
-import type { Plan, PlanSource } from "./plan";
+import type { AirReport } from "@/lib/air/types";
+import type { Insights } from "@/lib/domain/insights";
+import type { Plan, PlanSource } from "@/lib/domain/plan";
 
 /** What `/api/plan` returns: the readings, the computed facts and the plan. */
 export interface PlanResult {

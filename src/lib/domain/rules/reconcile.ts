@@ -1,8 +1,8 @@
-import type { CommuteSwap } from "../emissions";
-import { PLAN_LIMITS, type Plan } from "../plan";
-import { COMMUTE_LABELS, type Profile } from "../profile-options";
-import { commuteSwapItem } from "./swaps";
-import { swapKeyword } from "./text";
+import type { CommuteSwap } from "@/lib/domain/emissions";
+import { PLAN_LIMITS, type Plan } from "@/lib/domain/plan";
+import { COMMUTE_LABELS, type Profile } from "@/lib/domain/profile-options";
+import { commuteSwapItem } from "@/lib/domain/rules/swaps";
+import { swapKeyword } from "@/lib/domain/rules/text";
 
 /** Adds `extra` items not already covered until `primary` has `min` items. */
 function topUp<T>(primary: T[], extra: T[], min: number, max: number, isCovered: (item: T) => boolean): T[] {

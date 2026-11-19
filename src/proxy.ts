@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { buildCsp } from "./lib/server/csp";
+import { buildCsp } from "@/lib/server/csp";
 
 /** Adds a fresh CSP nonce to every page request. */
 export function proxy(request: NextRequest) {

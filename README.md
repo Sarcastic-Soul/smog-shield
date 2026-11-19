@@ -1,5 +1,7 @@
 # Smog Shield
 
+[![CI](https://github.com/Sarcastic-Soul/smog-shield/actions/workflows/ci.yml/badge.svg)](https://github.com/Sarcastic-Soul/smog-shield/actions/workflows/ci.yml)
+
 **Live:** https://smog-shield.vercel.app · **Challenge 6:** Urban Air Quality Assistant
 
 Smog Shield turns live air-quality data into a 24-hour plan for one family. You enter your city and who lives at home (children, older adults, asthma, a petrol-car commute, an LPG stove). It reads the current AQI and the hourly forecast, finds the cleanest and dirtiest hours, and works out what each choice means in numbers. Then Gemini writes a plan in plain words, in one of five languages, with the measured effect next to each step: "move the 45-minute walk to 12:00-14:00 and breathe 62% less PM2.5", "if 40 homes in your building took the bus, that is 27.6 t of CO₂ a year". A deterministic rule engine computes every number and also writes a full plan on its own. The rules plan shows in about a second and stays as the answer if Gemini is slow or down.

@@ -7,7 +7,7 @@ import {
   type HealthCondition,
   type Profile,
 } from "@/lib/domain/profile-options";
-import { CHOICE_INPUT_CLASS, Legend, NumberField } from "./fields";
+import { CHOICE_INPUT_CLASS, Legend, NumberField } from "@/components/form/fields";
 
 interface Props {
   household: Profile["household"];

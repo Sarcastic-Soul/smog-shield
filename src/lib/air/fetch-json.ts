@@ -1,3 +1,5 @@
+import { logWarn } from "@/lib/log";
+
 /**
  * JSON fetch for Open-Meteo with a timeout and one retry. Failures become
  * `AirDataError`s so routes can turn them into clear status codes.
@@ -27,10 +29,7 @@ export async function getJson(url: URL, fetcher: FetchLike): Promise<unknown> {
       response = await fetcher(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (response.status >= 500 && attempt < ATTEMPTS) response = undefined;
     } catch (error) {
-      console.warn(
-        `Open-Meteo request failed (attempt ${attempt})`,
-        error instanceof Error ? (error.cause ?? error) : error,
-      );
+      logWarn(`Open-Meteo request failed (attempt ${attempt})`, error);
     }
   }
   if (!response) {

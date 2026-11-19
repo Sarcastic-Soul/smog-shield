@@ -8,7 +8,7 @@ import {
   LANGUAGES,
   PROFILE_LIMITS,
   type Profile,
-} from "./profile-options";
+} from "@/lib/domain/profile-options";
 
 const count = (max: number) => z.number().int().min(0).max(max);
 

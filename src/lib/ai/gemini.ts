@@ -1,10 +1,11 @@
 import "server-only";
 import { GoogleGenAI } from "@google/genai";
-import { planJsonSchema, planSchema, type Plan } from "../domain/plan";
-import { ASK_BUDGET_MS, ATTEMPT_TIMEOUT_MS, PLAN_BUDGET_MS, RETRY_DELAY_MS } from "./budgets";
-import { createCircuitBreaker, type CircuitBreaker } from "./circuit-breaker";
-import { ASK_SYSTEM_INSTRUCTION, PLAN_SYSTEM_INSTRUCTION } from "./instructions";
-import { orderModels, withModelChain, type ModelChainOptions } from "./model-chain";
+import { planJsonSchema, planSchema, type Plan } from "@/lib/domain/plan";
+import { ASK_BUDGET_MS, ATTEMPT_TIMEOUT_MS, PLAN_BUDGET_MS, RETRY_DELAY_MS } from "@/lib/ai/budgets";
+import { createCircuitBreaker, type CircuitBreaker } from "@/lib/ai/circuit-breaker";
+import { ASK_SYSTEM_INSTRUCTION, PLAN_SYSTEM_INSTRUCTION } from "@/lib/ai/instructions";
+import { orderModels, withModelChain, type ModelChainOptions } from "@/lib/ai/model-chain";
+import { logWarn } from "@/lib/log";
 
 /** Default model first, then backups for when it is overloaded. */
 export const DEFAULT_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview"] as const;
@@ -66,10 +67,10 @@ export function createAssistant({
       );
       const parsed = planSchema.safeParse(JSON.parse(response.text ?? ""));
       breaker.record(parsed.success);
-      if (!parsed.success) console.warn("Gemini plan failed validation", parsed.error.issues.slice(0, 3));
+      if (!parsed.success) logWarn("Gemini plan failed validation", parsed.error);
       return parsed.success ? parsed.data : null;
     } catch (error) {
-      console.warn("Gemini plan request failed", error instanceof Error ? error.message : error);
+      logWarn("Gemini plan request failed", error);
       breaker.record(false);
       return null;
     }

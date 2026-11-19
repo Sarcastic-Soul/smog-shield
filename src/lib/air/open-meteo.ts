@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { mean, roundTo } from "../math";
-import { pm25ToAqi } from "./aqi";
-import { AirDataError, getJson, type FetchLike } from "./fetch-json";
+import { mean, roundTo } from "@/lib/math";
+import { pm25ToAqi } from "@/lib/air/aqi";
+import { AirDataError, getJson, type FetchLike } from "@/lib/air/fetch-json";
 import {
   dateOf,
   type AirReport,
@@ -10,7 +10,7 @@ import {
   type Place,
   type Pollutant,
   POLLUTANTS,
-} from "./types";
+} from "@/lib/air/types";
 
 /**
  * Air-quality client for the free Open-Meteo API (current readings, hourly
@@ -24,6 +24,8 @@ const AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
 /** Today plus three more days for the outlook (CAMS forecasts up to five). */
 const FORECAST_DAYS = 4;
 const OUTLOOK_DAYS = 3;
+/** Hours shown in the forecast chart, starting at the current hour. */
+const HOURS_AHEAD = 24;
 /** A forecast day with fewer hours than this (the cut-off last day) is left out of the outlook. */
 const MIN_HOURS_FOR_DAILY_MEAN = 12;
 
@@ -94,7 +96,7 @@ function buildOutlook(times: string[], pm25: (number | null)[], today: string): 
   const byDay = new Map<string, number[]>();
   times.forEach((time, i) => {
     const date = dateOf(time);
-    const value = pm25[i];
+    const value = pm25[i] ?? null;
     if (date <= today || value === null) return;
     byDay.set(date, [...(byDay.get(date) ?? []), value]);
   });
@@ -123,10 +125,11 @@ export async function fetchAirReport(place: Place, fetcher: FetchLike = fetch): 
   // Hourly times share the current format, so string comparison is safe.
   const currentHour = current.time.slice(0, 13);
   const next24h: HourlyAir[] = [];
-  for (let i = 0; i < hourly.time.length && next24h.length < 24; i++) {
-    const aqi = hourly.us_aqi[i];
-    if (hourly.time[i].slice(0, 13) < currentHour || aqi === null) continue;
-    next24h.push({ time: hourly.time[i], aqi: Math.round(aqi), pm25: round1(hourly.pm2_5[i]) });
+  for (const [i, time] of hourly.time.entries()) {
+    if (next24h.length === HOURS_AHEAD) break;
+    const aqi = hourly.us_aqi[i] ?? null;
+    if (time.slice(0, 13) < currentHour || aqi === null) continue;
+    next24h.push({ time, aqi: Math.round(aqi), pm25: round1(hourly.pm2_5[i] ?? null) });
   }
 
   return {

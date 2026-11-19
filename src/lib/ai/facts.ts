@@ -1,7 +1,7 @@
-import { clockOf, dateOf, POLLUTANT_LABELS, type AirReport } from "../air/types";
-import { BUILDING_SCALE } from "../domain/emissions";
-import type { Insights } from "../domain/insights";
-import { PLAN_LIMITS } from "../domain/plan";
+import { clockOf, dateOf, POLLUTANT_LABELS, type AirReport } from "@/lib/air/types";
+import { BUILDING_SCALE } from "@/lib/domain/emissions";
+import type { Insights } from "@/lib/domain/insights";
+import { PLAN_LIMITS } from "@/lib/domain/plan";
 import {
   COMMUTE_LABELS,
   CONDITION_LABELS,
@@ -10,8 +10,8 @@ import {
   LANGUAGE_ENGLISH_NAMES,
   type Language,
   type Profile,
-} from "../domain/profile-options";
-import { dayOf, type AirWindow } from "../domain/windows";
+} from "@/lib/domain/profile-options";
+import { dayOf, type AirWindow } from "@/lib/domain/windows";
 
 /**
  * The FACTS block: every number Gemini may quote, written as short labelled

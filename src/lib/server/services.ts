@@ -1,10 +1,10 @@
 import "server-only";
-import { assistantFromEnv } from "../ai/gemini";
-import { geocodeCity } from "../air/geocode";
-import { fetchAirReport } from "../air/open-meteo";
-import { createAirService } from "./air-service";
-import { createPlanService } from "./plan-service";
-import { createRateLimiter } from "./rate-limit";
+import { assistantFromEnv } from "@/lib/ai/gemini";
+import { geocodeCity } from "@/lib/air/geocode";
+import { fetchAirReport } from "@/lib/air/open-meteo";
+import { createAirService } from "@/lib/server/air-service";
+import { createPlanService } from "@/lib/server/plan-service";
+import { createRateLimiter } from "@/lib/server/rate-limit";
 
 /**
  * The one place where the app is wired together. Everything below is built

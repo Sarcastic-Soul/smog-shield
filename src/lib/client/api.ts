@@ -1,5 +1,5 @@
-import type { Profile } from "../domain/profile-options";
-import { isPlanEvent, type PlanEvent } from "../domain/result";
+import type { Profile } from "@/lib/domain/profile-options";
+import { isPlanEvent, type PlanEvent } from "@/lib/domain/result";
 
 /** The server's `{ error }` message, or a generic one with the status code. */
 async function errorMessage(response: Response): Promise<string> {

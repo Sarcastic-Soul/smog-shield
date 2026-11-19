@@ -81,6 +81,6 @@ export function clockOf(localTime: string): string {
 
 /** Minutes since midnight for an `HH:mm` clock string. */
 export function minutesOfClock(clock: string): number {
-  const [hours, minutes] = clock.split(":").map(Number);
+  const [hours = 0, minutes = 0] = clock.split(":").map(Number);
   return hours * 60 + minutes;
 }

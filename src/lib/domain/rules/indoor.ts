@@ -1,8 +1,8 @@
-import type { AirReport } from "../../air/types";
-import { CLEAN_COOKING_PM25, SMOKER_INDOOR_PM25 } from "../exposure";
-import type { Insights } from "../insights";
-import { PLAN_LIMITS, type Plan } from "../plan";
-import type { Profile } from "../profile-options";
+import type { AirReport } from "@/lib/air/types";
+import { CLEAN_COOKING_PM25, SMOKER_INDOOR_PM25 } from "@/lib/domain/exposure";
+import type { Insights } from "@/lib/domain/insights";
+import { PLAN_LIMITS, type Plan } from "@/lib/domain/plan";
+import type { Profile } from "@/lib/domain/profile-options";
 
 /* Indoor air fixes of the rule-based plan. */
 

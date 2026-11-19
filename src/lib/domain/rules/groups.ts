@@ -1,5 +1,5 @@
-import { PLAN_LIMITS, type Plan } from "../plan";
-import type { HouseholdRisk, SensitiveGroupId } from "../risk";
+import { PLAN_LIMITS, type Plan } from "@/lib/domain/plan";
+import type { HouseholdRisk, SensitiveGroupId } from "@/lib/domain/risk";
 
 /* Advice for each sensitive group in the home. */
 

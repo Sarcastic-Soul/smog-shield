@@ -1,4 +1,4 @@
-import { sanitizeUserText } from "./sanitize";
+import { sanitizeUserText } from "@/lib/ai/sanitize";
 
 /**
  * User prompts: the server-built FACTS block plus the user's own text, which

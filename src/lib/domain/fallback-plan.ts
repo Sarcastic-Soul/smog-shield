@@ -1,12 +1,12 @@
-import { POLLUTANT_LABELS, type AirReport } from "../air/types";
-import type { Insights } from "./insights";
-import { PLAN_LIMITS, type Plan } from "./plan";
-import type { Profile } from "./profile-options";
-import { buildCommunityActions } from "./rules/community";
-import { buildGroupAdvice } from "./rules/groups";
-import { buildIndoorHacks } from "./rules/indoor";
-import { buildRoutine, scheduleFromNow } from "./rules/routine";
-import { buildAlternatives } from "./rules/swaps";
+import { POLLUTANT_LABELS, type AirReport } from "@/lib/air/types";
+import type { Insights } from "@/lib/domain/insights";
+import { PLAN_LIMITS, type Plan } from "@/lib/domain/plan";
+import type { Profile } from "@/lib/domain/profile-options";
+import { buildCommunityActions } from "@/lib/domain/rules/community";
+import { buildGroupAdvice } from "@/lib/domain/rules/groups";
+import { buildIndoorHacks } from "@/lib/domain/rules/indoor";
+import { buildRoutine, scheduleFromNow } from "@/lib/domain/rules/routine";
+import { buildAlternatives } from "@/lib/domain/rules/swaps";
 
 function summaryOf(report: AirReport, insights: Insights): string {
   const { now } = report;

@@ -1,5 +1,5 @@
-import { bandFor, type AqiBandId } from "../air/aqi";
-import type { HealthCondition, Profile } from "./profile-options";
+import { bandFor, type AqiBandId } from "@/lib/air/aqi";
+import type { HealthCondition, Profile } from "@/lib/domain/profile-options";
 
 export type SensitiveGroupId = "children" | "seniors" | HealthCondition;
 
@@ -48,7 +48,7 @@ const BASE_LEVEL: Record<AqiBandId, RiskLevel> = {
 };
 
 function bump(level: RiskLevel): RiskLevel {
-  return LEVEL_ORDER[Math.min(LEVEL_ORDER.indexOf(level) + 1, LEVEL_ORDER.length - 1)];
+  return LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1] ?? "severe";
 }
 
 export function sensitiveGroupsOf(profile: Profile): SensitiveGroup[] {

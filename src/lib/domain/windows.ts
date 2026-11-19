@@ -1,6 +1,6 @@
-import { pm25ToAqi } from "../air/aqi";
-import { dateOf, hourOf, type HourlyAir } from "../air/types";
-import { mean, roundTo } from "../math";
+import { pm25ToAqi } from "@/lib/air/aqi";
+import { dateOf, hourOf, type HourlyAir } from "@/lib/air/types";
+import { mean, roundTo } from "@/lib/math";
 
 export interface AirWindow {
   /** Local start time, `YYYY-MM-DDTHH:mm`. */
@@ -26,15 +26,13 @@ function hourAfter(localTime: string): string {
   return `${localTime.slice(0, 11)}${String(hourOf(localTime) + 1).padStart(2, "0")}:00`;
 }
 
-function windowAt(hours: HourlyAir[], index: number, size: number): AirWindow {
-  const slice = hours.slice(index, index + size);
+/** Summary of consecutive hours, or null for an empty slice. */
+function windowOf(slice: HourlyAir[]): AirWindow | null {
+  const first = slice[0];
+  const last = slice.at(-1);
+  if (!first || !last) return null;
   const avgPm25 = roundTo(mean(slice.map((h) => h.pm25)));
-  return {
-    start: slice[0].time,
-    end: hourAfter(slice[slice.length - 1].time),
-    avgAqi: pm25ToAqi(avgPm25),
-    avgPm25,
-  };
+  return { start: first.time, end: hourAfter(last.time), avgAqi: pm25ToAqi(avgPm25), avgPm25 };
 }
 
 /**
@@ -51,18 +49,19 @@ export function findWindows(hours: HourlyAir[], size = 2): { best: AirWindow; wo
   let pmSum = 0;
   let daytimeCount = 0;
 
-  for (let i = 0; i < hours.length; i++) {
-    pmSum += hours[i].pm25;
-    daytimeCount += isDaytime(hours[i]) ? 1 : 0;
-    if (i >= size) {
-      pmSum -= hours[i - size].pm25;
-      daytimeCount -= isDaytime(hours[i - size]) ? 1 : 0;
+  for (const [i, hour] of hours.entries()) {
+    pmSum += hour.pm25;
+    daytimeCount += isDaytime(hour) ? 1 : 0;
+    const leaving = hours[i - size];
+    if (leaving) {
+      pmSum -= leaving.pm25;
+      daytimeCount -= isDaytime(leaving) ? 1 : 0;
     }
-    if (i < size - 1) continue;
 
     const start = i - size + 1;
-    // All hours in daytime and on the same calendar day.
-    if (daytimeCount !== size || dateOf(hours[start].time) !== dateOf(hours[i].time)) continue;
+    const first = hours[start];
+    // A full window, all in daytime, on one calendar day.
+    if (!first || daytimeCount !== size || dateOf(first.time) !== dateOf(hour.time)) continue;
     if (pmSum < bestSum) {
       bestSum = pmSum;
       bestIndex = start;
@@ -73,8 +72,9 @@ export function findWindows(hours: HourlyAir[], size = 2): { best: AirWindow; wo
     }
   }
 
-  if (bestIndex < 0) return null;
-  return { best: windowAt(hours, bestIndex, size), worst: windowAt(hours, worstIndex, size) };
+  const best = windowOf(hours.slice(bestIndex, bestIndex + size));
+  const worst = windowOf(hours.slice(worstIndex, worstIndex + size));
+  return bestIndex >= 0 && best && worst ? { best, worst } : null;
 }
 
 /** "today" or "tomorrow" relative to `now`, both local `YYYY-MM-DDTHH:mm` strings. */

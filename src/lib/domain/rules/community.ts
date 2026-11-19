@@ -1,8 +1,8 @@
-import { BUILDING_SCALE } from "../emissions";
-import type { Insights } from "../insights";
-import { PLAN_LIMITS, type Plan } from "../plan";
-import { COMMUTE_LABELS, type Profile } from "../profile-options";
-import { inSentence } from "./text";
+import { BUILDING_SCALE } from "@/lib/domain/emissions";
+import type { Insights } from "@/lib/domain/insights";
+import { PLAN_LIMITS, type Plan } from "@/lib/domain/plan";
+import { COMMUTE_LABELS, type Profile } from "@/lib/domain/profile-options";
+import { inSentence } from "@/lib/domain/rules/text";
 
 /* Actions with neighbours, the school and the RWA. */
 

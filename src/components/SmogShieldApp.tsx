@@ -6,13 +6,13 @@ import { loadSavedProfile, saveProfile, validateProfile } from "@/lib/client/pro
 import { isAbortError, messageOf } from "@/lib/client/errors";
 import { DEFAULT_PROFILE, type Profile } from "@/lib/domain/profile-options";
 import type { PlanResult } from "@/lib/domain/result";
-import { AirReportPanel } from "./AirReportPanel";
-import { AskPanel } from "./AskPanel";
-import { ForecastStrip } from "./ForecastStrip";
-import { ImpactSimulator } from "./ImpactSimulator";
-import { PlanView } from "./PlanView";
-import { EmptyState, ErrorState, LoadingState } from "./ResultStates";
-import { ProfileForm } from "./ProfileForm";
+import { AirReportPanel } from "@/components/AirReportPanel";
+import { AskPanel } from "@/components/AskPanel";
+import { ForecastStrip } from "@/components/ForecastStrip";
+import { ImpactSimulator } from "@/components/ImpactSimulator";
+import { PlanView } from "@/components/PlanView";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ResultStates";
+import { ProfileForm } from "@/components/ProfileForm";
 
 type State =
   | { status: "idle" }

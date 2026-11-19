@@ -15,7 +15,7 @@ import type { Insights } from "@/lib/domain/insights";
 import { COMMUTE_LABELS, type Profile } from "@/lib/domain/profile-options";
 import { isHighRisk } from "@/lib/domain/risk";
 import { inSentence } from "@/lib/domain/rules/text";
-import { CheckboxField, CHOICE_INPUT_CLASS, SelectField } from "./form/fields";
+import { CheckboxField, CHOICE_INPUT_CLASS, SelectField } from "@/components/form/fields";
 
 const SCALE_LABELS: Record<CommunityScaleId, string> = {
   home: communityScaleLabel("home"),

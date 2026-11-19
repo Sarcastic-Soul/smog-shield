@@ -1,4 +1,4 @@
-import type { Profile } from "../profile-options";
+import type { Profile } from "@/lib/domain/profile-options";
 
 /* Small text helpers shared by the rule-based plan sections. */
 
@@ -9,11 +9,12 @@ import type { Profile } from "../profile-options";
 export function timeInNotes(notes: string): string | null {
   const twelveHour = /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b/i.exec(notes);
   if (twelveHour) {
-    const hour = (Number(twelveHour[1]) % 12) + (twelveHour[3].toLowerCase() === "pm" ? 12 : 0);
-    return `${String(hour).padStart(2, "0")}:${twelveHour[2] ?? "00"}`;
+    const [, hourText = "", minutes = "00", meridiem = ""] = twelveHour;
+    const hour = (Number(hourText) % 12) + (meridiem.toLowerCase() === "pm" ? 12 : 0);
+    return `${String(hour).padStart(2, "0")}:${minutes}`;
   }
   const twentyFour = /\b([01]\d|2[0-3]):([0-5]\d)\b/.exec(notes);
-  return twentyFour ? `${twentyFour[1]}:${twentyFour[2]}` : null;
+  return twentyFour ? twentyFour[0] : null;
 }
 
 /** Lower-cases a label for mid-sentence use, keeping acronyms such as "CNG". */
@@ -28,5 +29,6 @@ export function filterName(profile: Profile): string {
 
 /** The swap's target mode name as used in matching text, e.g. "metro" for "Metro / train". */
 export function swapKeyword(label: string): string {
-  return label.split(" / ")[0].toLowerCase();
+  const [first = label] = label.split(" / ");
+  return first.toLowerCase();
 }

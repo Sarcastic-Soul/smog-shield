@@ -1,5 +1,5 @@
-import { roundTo } from "../math";
-import type { CommuteMode, Profile } from "./profile-options";
+import { roundTo } from "@/lib/math";
+import type { CommuteMode, Profile } from "@/lib/domain/profile-options";
 
 /**
  * Commute emissions and what a swap saves, for one home or many. Factors are

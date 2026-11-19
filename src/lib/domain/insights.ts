@@ -1,6 +1,6 @@
-import { bandFor, cigarettesPerDay, timesWhoLimit, type AqiBandId } from "../air/aqi";
-import type { AirReport, DailyOutlook } from "../air/types";
-import { roundTo } from "../math";
+import { bandFor, cigarettesPerDay, timesWhoLimit, type AqiBandId } from "@/lib/air/aqi";
+import type { AirReport, DailyOutlook } from "@/lib/air/types";
+import { roundTo } from "@/lib/math";
 import {
   CO2_KG_PER_KM,
   BUILDING_SCALE,
@@ -9,7 +9,7 @@ import {
   weeklyCommuteKm,
   type CommunityImpact,
   type CommuteSwap,
-} from "./emissions";
+} from "@/lib/domain/emissions";
 import {
   COOKING_PM25_ADDED,
   exerciseShift,
@@ -22,10 +22,10 @@ import {
   type HeatingHazard,
   type IndoorEstimate,
   type MaskEffect,
-} from "./exposure";
-import type { CookingFuel, Profile } from "./profile-options";
-import { assessRisk, type HouseholdRisk } from "./risk";
-import { findWindows, type AirWindow } from "./windows";
+} from "@/lib/domain/exposure";
+import type { CookingFuel, Profile } from "@/lib/domain/profile-options";
+import { assessRisk, type HouseholdRisk } from "@/lib/domain/risk";
+import { findWindows, type AirWindow } from "@/lib/domain/windows";
 
 export type Trend = "worsening" | "steady" | "improving";
 
@@ -59,8 +59,9 @@ export interface Insights {
 const TREND_THRESHOLD = 0.15;
 
 function trendOf(todayPm25: number, days: DailyOutlook[]): Trend {
-  if (days.length === 0 || todayPm25 <= 0) return "steady";
-  const change = (days[days.length - 1].avgPm25 - todayPm25) / todayPm25;
+  const last = days.at(-1);
+  if (!last || todayPm25 <= 0) return "steady";
+  const change = (last.avgPm25 - todayPm25) / todayPm25;
   if (change > TREND_THRESHOLD) return "worsening";
   if (change < -TREND_THRESHOLD) return "improving";
   return "steady";

@@ -2,7 +2,7 @@ import { bandFor, pm25ToAqi } from "@/lib/air/aqi";
 import { clockOf, hourOf, type DailyOutlook, type HourlyAir } from "@/lib/air/types";
 import type { Trend } from "@/lib/domain/insights";
 import { dayOf, type AirWindow } from "@/lib/domain/windows";
-import { BandDot } from "./ui";
+import { BandDot } from "@/components/ui";
 
 interface Props {
   hours: HourlyAir[];

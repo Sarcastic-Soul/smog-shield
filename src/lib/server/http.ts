@@ -1,6 +1,7 @@
 import type { z } from "zod";
-import type { RateLimiter } from "./rate-limit";
-import { AirDataError } from "../air/fetch-json";
+import type { RateLimiter } from "@/lib/server/rate-limit";
+import { AirDataError } from "@/lib/air/fetch-json";
+import { logError } from "@/lib/log";
 
 export const MAX_BODY_BYTES = 8 * 1024;
 
@@ -40,7 +41,7 @@ export function errorResponse(error: unknown, fallbackMessage: string): Response
   if (error instanceof AirDataError) {
     return jsonError(error.kind === "not_found" ? 404 : 502, error.message);
   }
-  console.error(fallbackMessage, error);
+  logError(fallbackMessage, error);
   return jsonError(500, fallbackMessage);
 }
 
@@ -95,7 +96,8 @@ export async function readJson<S extends z.ZodType>(request: Request, schema: S)
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return { ok: false, response: jsonError(422, `${first.path.join(".") || "body"}: ${first.message}`) };
+    const where = first?.path.join(".") || "body";
+    return { ok: false, response: jsonError(422, `${where}: ${first?.message ?? "Invalid value"}`) };
   }
   return { ok: true, data: parsed.data };
 }

@@ -10,7 +10,7 @@ import {
   PROFILE_LIMITS,
   type Profile,
 } from "@/lib/domain/profile-options";
-import { CheckboxField, Legend, NumberField, SelectField } from "./fields";
+import { CheckboxField, Legend, NumberField, SelectField } from "@/components/form/fields";
 
 interface CommuteProps {
   commute: Profile["commute"];

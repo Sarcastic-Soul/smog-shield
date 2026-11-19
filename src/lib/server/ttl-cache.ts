@@ -1,4 +1,4 @@
-import { LruCache } from "./lru";
+import { LruCache } from "@/lib/server/lru";
 
 interface Entry<V> {
   promise: Promise<V>;

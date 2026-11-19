@@ -1,5 +1,5 @@
-import { roundTo } from "../math";
-import type { CookingFuel, HeatingType } from "./profile-options";
+import { roundTo } from "@/lib/math";
+import type { CookingFuel, HeatingType } from "@/lib/domain/profile-options";
 
 /**
  * Exposure maths: what reaches the lungs indoors, outdoors and while

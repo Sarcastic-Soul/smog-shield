@@ -1,7 +1,7 @@
 import { WHO_PM25_24H } from "@/lib/air/aqi";
 import { clockOf, POLLUTANT_LABELS, type AirReport } from "@/lib/air/types";
 import type { Insights } from "@/lib/domain/insights";
-import { BandDot, Stat } from "./ui";
+import { BandDot, Stat } from "@/components/ui";
 
 const RISK_COPY = {
   low: "Low risk for your home",

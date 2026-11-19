@@ -1,13 +1,13 @@
-import type { AirReport } from "../air/types";
-import { buildFacts } from "../ai/facts";
-import { buildPlanPrompt } from "../ai/prompt";
-import { buildFallbackPlan } from "../domain/fallback-plan";
-import { reconcilePlan } from "../domain/rules/reconcile";
-import { buildInsights, type Insights } from "../domain/insights";
-import type { Plan, PlanSource } from "../domain/plan";
-import type { Profile } from "../domain/profile-options";
-import type { PlanEvent, PlanResult } from "../domain/result";
-import { createTtlCache } from "./ttl-cache";
+import type { AirReport } from "@/lib/air/types";
+import { buildFacts } from "@/lib/ai/facts";
+import { buildPlanPrompt } from "@/lib/ai/prompt";
+import { buildFallbackPlan } from "@/lib/domain/fallback-plan";
+import { reconcilePlan } from "@/lib/domain/rules/reconcile";
+import { buildInsights, type Insights } from "@/lib/domain/insights";
+import type { Plan, PlanSource } from "@/lib/domain/plan";
+import type { Profile } from "@/lib/domain/profile-options";
+import type { PlanEvent, PlanResult } from "@/lib/domain/result";
+import { createTtlCache } from "@/lib/server/ttl-cache";
 
 export interface PlanDeps {
   getAirReport: (city: string) => Promise<AirReport>;

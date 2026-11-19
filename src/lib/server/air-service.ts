@@ -1,6 +1,6 @@
-import { AirDataError } from "../air/fetch-json";
-import type { AirReport, Place } from "../air/types";
-import { createTtlCache } from "./ttl-cache";
+import { AirDataError } from "@/lib/air/fetch-json";
+import type { AirReport, Place } from "@/lib/air/types";
+import { createTtlCache } from "@/lib/server/ttl-cache";
 
 export interface AirServiceDeps {
   geocode: (city: string) => Promise<Place>;

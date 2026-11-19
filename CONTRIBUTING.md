@@ -37,6 +37,8 @@ See [docs/TESTING.md](docs/TESTING.md) for what each test level covers.
 - Comments explain _why_, in plain English.
 - Icons: Phosphor (`@phosphor-icons/react`).
 
+Compiler settings go beyond `strict`: `noUncheckedIndexedAccess`, `noImplicitOverride` and `noFallthroughCasesInSwitch` for `src`. ESLint adds `consistent-type-imports`, `eqeqeq` and `no-console` (server logs go through [`src/lib/log.ts`](src/lib/log.ts)). Imports use the `@/` alias everywhere.
+
 ## Project rules
 
 These come from [`AGENTS.md`](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#dependency-rules):
@@ -50,6 +52,8 @@ These come from [`AGENTS.md`](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITE
 7. This is Next.js 16. Read the guide in `node_modules/next/dist/docs/` before using a Next.js API; some differ from older versions (for example the CSP nonce lives in `src/proxy.ts`).
 
 ## Pull request checklist
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs every check below on each push; keep it green.
 
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e` all pass.
 - [ ] `pnpm test:coverage` stays above the thresholds in [`vitest.config.mts`](vitest.config.mts).

@@ -4,6 +4,7 @@ import type { PlanEvent } from "@/lib/domain/result";
 import { errorResponse, guardRequest, streamText } from "@/lib/server/http";
 import type { Facts } from "@/lib/server/plan-service";
 import { planLimiter, planService } from "@/lib/server/services";
+import { logError } from "@/lib/log";
 
 /** Seconds; must stay above PLAN_BUDGET_MS (src/lib/ai/budgets.ts). Next.js needs a literal here. */
 export const maxDuration = 40;
@@ -34,7 +35,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return streamText(ndjson(planService.planEvents(profile, facts)), "application/x-ndjson; charset=utf-8", (error) => {
-    console.error("Plan stream failed", error);
+    logError("Plan stream failed", error);
     return undefined;
   });
 }

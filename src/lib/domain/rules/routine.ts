@@ -1,8 +1,8 @@
-import { clockOf, minutesOfClock, type AirReport } from "../../air/types";
-import type { Insights } from "../insights";
-import type { Plan } from "../plan";
-import { COMMUTE_LABELS, COOKING_LABELS, type Profile } from "../profile-options";
-import { filterName, inSentence, timeInNotes } from "./text";
+import { clockOf, minutesOfClock, type AirReport } from "@/lib/air/types";
+import type { Insights } from "@/lib/domain/insights";
+import type { Plan } from "@/lib/domain/plan";
+import { COMMUTE_LABELS, COOKING_LABELS, type Profile } from "@/lib/domain/profile-options";
+import { filterName, inSentence, timeInNotes } from "@/lib/domain/rules/text";
 
 /* The "next 24 hours" routine of the rule-based plan. */
 

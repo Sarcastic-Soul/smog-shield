@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { AirDataError, getJson, type FetchLike } from "./fetch-json";
-import type { Place } from "./types";
+import { AirDataError, getJson, type FetchLike } from "@/lib/air/fetch-json";
+import type { Place } from "@/lib/air/types";
 
 /** Turns a city name into coordinates with the free Open-Meteo geocoder. */
 
